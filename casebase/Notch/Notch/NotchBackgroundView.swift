@@ -7,6 +7,46 @@ struct NotchBackgroundView: View {
         Rectangle()
             .foregroundStyle(.black)
             .mask(backgroundMask)
+            .overlay(alignment: .top) {
+                if viewModel.captureSinkProgress > 0.001 {
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.12 * viewModel.captureSinkProgress))
+                            .frame(
+                                width: 22 + (76 * viewModel.captureSinkProgress),
+                                height: 22 + (76 * viewModel.captureSinkProgress)
+                            )
+                            .blur(radius: 14 - (6 * viewModel.captureSinkProgress))
+
+                        Circle()
+                            .strokeBorder(Color.white.opacity(0.24 * viewModel.captureSinkProgress), lineWidth: 1.4)
+                            .frame(
+                                width: 18 + (54 * viewModel.captureSinkProgress),
+                                height: 18 + (54 * viewModel.captureSinkProgress)
+                            )
+                            .scaleEffect(1 + (0.14 * viewModel.captureSinkProgress))
+
+                        Capsule(style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.24 * viewModel.captureSinkProgress),
+                                        Color.white.opacity(0.04)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .frame(
+                                width: 28 + (72 * viewModel.captureSinkProgress),
+                                height: 8 + (18 * viewModel.captureSinkProgress)
+                            )
+                            .blur(radius: 8)
+                    }
+                    .offset(y: 8 + (2 * viewModel.captureSinkProgress))
+                    .blendMode(.screen)
+                }
+            }
             .frame(
                 width: viewModel.surfaceSize.width + viewModel.cornerRadius * 2,
                 height: viewModel.surfaceSize.height
