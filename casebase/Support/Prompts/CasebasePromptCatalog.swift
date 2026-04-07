@@ -63,6 +63,27 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var hoverActionScreenRecordingTitle: String {
+            switch language {
+            case .simplifiedChinese: return "请授权屏幕录制"
+            case .english: return "Authorize Screen Recording"
+            }
+        }
+
+        var hoverActionScreenRecordingDetail: String {
+            switch language {
+            case .simplifiedChinese: return ""
+            case .english: return ""
+            }
+        }
+
+        var hoverActionScreenRecordingButton: String {
+            switch language {
+            case .simplifiedChinese: return "去授权"
+            case .english: return "Authorize"
+            }
+        }
+
         var hoverActionSettingsTooltip: String {
             switch language {
             case .simplifiedChinese: return "设置"
@@ -320,6 +341,13 @@ enum CasebasePromptCatalog {
             switch language {
             case .simplifiedChinese: return "授权辅助功能"
             case .english: return "Authorize Accessibility"
+            }
+        }
+
+        var settingsScreenRecordingButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "授权屏幕录制"
+            case .english: return "Authorize Screen Recording"
             }
         }
 
@@ -698,7 +726,7 @@ enum CasebasePromptCatalog {
 
         var clearButtonTitle: String {
             switch language {
-            case .simplifiedChinese: return "清空"
+            case .simplifiedChinese: return "确定"
             case .english: return "Clear"
             }
         }

@@ -5,6 +5,8 @@ struct NotchSettingsView: View {
     let onClose: () -> Void
     let showsSelectionCaptureAccess: Bool
     let onOpenSelectionCaptureAccess: () -> Void
+    let showsScreenRecordingAccess: Bool
+    let onOpenScreenRecordingAccess: () -> Void
     let onOpenClearData: () -> Void
     let onQuit: () -> Void
     let canClearData: Bool
@@ -35,6 +37,16 @@ struct NotchSettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Button(action: onOpenSelectionCaptureAccess) {
                         Text(CasebasePromptCatalog.ui.settingsAccessibilityButtonTitle)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(NotchActionButtonStyle(prominent: false))
+                }
+            }
+
+            if showsScreenRecordingAccess {
+                VStack(alignment: .leading, spacing: 10) {
+                    Button(action: onOpenScreenRecordingAccess) {
+                        Text(CasebasePromptCatalog.ui.settingsScreenRecordingButtonTitle)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(NotchActionButtonStyle(prominent: false))

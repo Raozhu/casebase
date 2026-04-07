@@ -55,7 +55,9 @@ struct NotchCompositeView: View {
                 onOpenLibrary: viewModel.openLibrary,
                 onOpenSettings: viewModel.openSettings,
                 showsSelectionCapturePrompt: !viewModel.selectionCaptureAuthorized,
-                onAuthorizeSelectionCapture: viewModel.openSelectionCaptureAccessibilitySettings
+                onAuthorizeSelectionCapture: viewModel.openSelectionCaptureAccessibilitySettings,
+                showsScreenRecordingPrompt: !viewModel.screenshotCaptureAuthorized,
+                onAuthorizeScreenRecording: viewModel.openScreenRecordingSettings
             )
         case .library:
             NotchLibraryView(viewModel: viewModel)
@@ -66,6 +68,8 @@ struct NotchCompositeView: View {
                 onClose: viewModel.closeSettings,
                 showsSelectionCaptureAccess: !viewModel.selectionCaptureAuthorized,
                 onOpenSelectionCaptureAccess: viewModel.openSelectionCaptureAccessibilitySettings,
+                showsScreenRecordingAccess: !viewModel.screenshotCaptureAuthorized,
+                onOpenScreenRecordingAccess: viewModel.openScreenRecordingSettings,
                 onOpenClearData: viewModel.openDataResetConfirmation,
                 onQuit: viewModel.quitApplication,
                 canClearData: viewModel.canOpenDataResetConfirmation
@@ -102,9 +106,15 @@ struct NotchCompositeView: View {
             NotchAnswerResultView(viewModel: viewModel)
         case .error:
             NotchErrorView(
-                message: viewModel.errorMessage ?? CasebasePromptCatalog.ui.unknownErrorMessage,
-                onRetry: viewModel.retryLastAction,
-                onClear: viewModel.clear
+                title: viewModel.currentErrorTitle,
+                message: viewModel.currentErrorMessage,
+                errorIndexLabel: viewModel.currentErrorIndexLabel,
+                canNavigate: viewModel.hasMultipleFailedTasks,
+                onPrevious: viewModel.selectPreviousFailedTask,
+                onNext: viewModel.selectNextFailedTask,
+                onRetry: viewModel.retryCurrentError,
+                onDismiss: viewModel.dismissCurrentError,
+                copyText: viewModel.currentErrorCopyText
             )
         }
     }

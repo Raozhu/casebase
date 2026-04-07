@@ -1,5 +1,36 @@
 import SwiftUI
 
+private struct NotchShoulderFill: View {
+    enum Side {
+        case leading
+        case trailing
+    }
+
+    let side: Side
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        shoulderPath
+            .fill(.black, style: FillStyle(eoFill: true))
+            .frame(width: cornerRadius, height: cornerRadius)
+    }
+
+    private var shoulderPath: Path {
+        let rect = CGRect(origin: .zero, size: CGSize(width: cornerRadius, height: cornerRadius))
+        var path = Path()
+        path.addRect(rect)
+
+        let radii = switch side {
+        case .leading:
+            RectangleCornerRadii(topLeading: 0, bottomLeading: 0, bottomTrailing: 0, topTrailing: cornerRadius)
+        case .trailing:
+            RectangleCornerRadii(topLeading: cornerRadius, bottomLeading: 0, bottomTrailing: 0, topTrailing: 0)
+        }
+        path.addPath(UnevenRoundedRectangle(cornerRadii: radii, style: .continuous).path(in: rect))
+        return path
+    }
+}
+
 struct NotchBackgroundView: View {
     @ObservedObject var viewModel: NotchViewModel
 
@@ -66,45 +97,19 @@ struct NotchBackgroundView: View {
             )
             .overlay(alignment: .topLeading) {
                 topLeftCutout
-                    .offset(x: -viewModel.cornerRadius - viewModel.contentPadding + 0.5, y: -0.5)
+                    .offset(x: -viewModel.cornerRadius + 0.5, y: -0.5)
             }
             .overlay(alignment: .topTrailing) {
                 topRightCutout
-                    .offset(x: viewModel.cornerRadius + viewModel.contentPadding - 0.5, y: -0.5)
+                    .offset(x: viewModel.cornerRadius - 0.5, y: -0.5)
             }
     }
 
     private var topLeftCutout: some View {
-        ZStack(alignment: .topTrailing) {
-            Rectangle()
-                .frame(width: viewModel.cornerRadius, height: viewModel.cornerRadius)
-                .foregroundStyle(.black)
-            Rectangle()
-                .clipShape(.rect(topTrailingRadius: viewModel.cornerRadius))
-                .foregroundStyle(.white)
-                .frame(
-                    width: viewModel.cornerRadius + viewModel.contentPadding,
-                    height: viewModel.cornerRadius + viewModel.contentPadding
-                )
-                .blendMode(.destinationOut)
-        }
-        .compositingGroup()
+        NotchShoulderFill(side: .leading, cornerRadius: viewModel.cornerRadius)
     }
 
     private var topRightCutout: some View {
-        ZStack(alignment: .topLeading) {
-            Rectangle()
-                .frame(width: viewModel.cornerRadius, height: viewModel.cornerRadius)
-                .foregroundStyle(.black)
-            Rectangle()
-                .clipShape(.rect(topLeadingRadius: viewModel.cornerRadius))
-                .foregroundStyle(.white)
-                .frame(
-                    width: viewModel.cornerRadius + viewModel.contentPadding,
-                    height: viewModel.cornerRadius + viewModel.contentPadding
-                )
-                .blendMode(.destinationOut)
-        }
-        .compositingGroup()
+        NotchShoulderFill(side: .trailing, cornerRadius: viewModel.cornerRadius)
     }
 }

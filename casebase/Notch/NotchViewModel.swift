@@ -11,6 +11,11 @@ final class NotchViewModel: ObservableObject {
         case expanded
     }
 
+    enum CollapsedIndicator {
+        case warning
+        case error
+    }
+
     private enum FailedAction: Equatable {
         case answerQuestion(String)
     }
@@ -20,6 +25,7 @@ final class NotchViewModel: ObservableObject {
     let contentPadding: CGFloat = 16
     let idleExpandedPanelSize = CGSize(width: 420, height: 168)
     let hoverExpandedPanelSize = CGSize(width: 420, height: 150)
+    let hoverExpandedPanelUnauthorizedMinHeight: CGFloat = 176
     let maxAdaptiveExpandedPanelHeight: CGFloat = 640
     let taskRailSpacing: CGFloat = 8
     let taskRailVerticalSpacing: CGFloat = 8
@@ -46,8 +52,10 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var feedbackScale: CGFloat = 1
     @Published private(set) var captureSinkProgress: CGFloat = 0
     @Published private(set) var selectionCaptureAuthorized = true
+    @Published private(set) var screenshotCaptureAuthorized = true
     @Published private(set) var isDismissed = false
     @Published private(set) var isClearingStoredData = false
+    @Published private(set) var selectedFailedTaskID: UUID?
 
     @Published private(set) var status: Status = .collapsed
     @Published var displayCutoutRect: CGRect
@@ -112,7 +120,7 @@ final class NotchViewModel: ObservableObject {
             self.answerService = nil
         }
 
-        refreshSelectionCaptureAuthorization()
+        refreshShortcutPermissions()
     }
 
     var isExpanded: Bool {
@@ -121,11 +129,25 @@ final class NotchViewModel: ObservableObject {
 
     var surfaceSize: CGSize {
         isExpanded
-            ? expandedPanelSize
+            ? CGSize(width: expandedPanelSize.width, height: expandedSurfaceHeight)
             : CGSize(
-                width: max(0, displayCutoutRect.width),
+                width: max(0, displayCutoutRect.width) + collapsedLeadingExtensionWidth + collapsedTrailingExtensionWidth,
                 height: max(0, displayCutoutRect.height + 1)
             )
+    }
+
+    var collapsedLeadingExtensionWidth: CGFloat {
+        guard collapsedIndicator != nil, !isExpanded else { return 0 }
+        return 34
+    }
+
+    var collapsedTrailingExtensionWidth: CGFloat {
+        guard collapsedIndicator == .error, failedTasks.count > 1, !isExpanded else { return 0 }
+        return 34
+    }
+
+    var surfaceHorizontalOffset: CGFloat {
+        (collapsedTrailingExtensionWidth - collapsedLeadingExtensionWidth) / 2
     }
 
     var expandedPanelSize: CGSize {
@@ -135,7 +157,12 @@ final class NotchViewModel: ObservableObject {
         case .hoverActions:
             return CGSize(
                 width: hoverExpandedPanelSize.width,
-                height: adaptiveExpandedHeight(for: .hoverActions, minimum: hoverExpandedPanelSize.height)
+                height: adaptiveExpandedHeight(
+                    for: .hoverActions,
+                    minimum: selectionCaptureAuthorized
+                        ? hoverExpandedPanelSize.height
+                        : hoverExpandedPanelUnauthorizedMinHeight
+                )
             )
         case .library:
             return CGSize(width: 640, height: 560)
@@ -163,9 +190,17 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    var expandedContentTopInset: CGFloat {
+        max(0, displayCutoutRect.height - contentPadding + 1)
+    }
+
+    var expandedSurfaceHeight: CGFloat {
+        expandedPanelSize.height + expandedContentTopInset + (contentPadding * 2)
+    }
+
     var surfaceRect: CGRect {
         CGRect(
-            x: screenFrame.origin.x + (screenFrame.width - surfaceSize.width) / 2,
+            x: screenFrame.origin.x + (screenFrame.width - surfaceSize.width) / 2 + surfaceHorizontalOffset,
             y: screenFrame.origin.y + screenFrame.height - surfaceSize.height,
             width: surfaceSize.width,
             height: surfaceSize.height
@@ -186,6 +221,41 @@ final class NotchViewModel: ObservableObject {
 
     var canOpenDataResetConfirmation: Bool {
         unfinishedTaskCount == 0 && !isBusy && !isClearingStoredData
+    }
+
+    var hasMissingShortcutPermissions: Bool {
+        !selectionCaptureAuthorized || !screenshotCaptureAuthorized
+    }
+
+    var failedTasks: [NotchIngestTask] {
+        ingestTasks.filter { task in
+            if case .failed = task.status {
+                return true
+            }
+            return false
+        }
+    }
+
+    var selectedFailedTask: NotchIngestTask? {
+        if let selectedFailedTaskID,
+           let task = failedTasks.first(where: { $0.id == selectedFailedTaskID }) {
+            return task
+        }
+        return failedTasks.first
+    }
+
+    var hasMultipleFailedTasks: Bool {
+        failedTasks.count > 1
+    }
+
+    var collapsedIndicator: CollapsedIndicator? {
+        if !failedTasks.isEmpty || (surfaceState == .error && errorMessage != nil) {
+            return .error
+        }
+        if hasMissingShortcutPermissions {
+            return .warning
+        }
+        return nil
     }
 
     var shouldRemainExpanded: Bool {
@@ -218,7 +288,7 @@ final class NotchViewModel: ObservableObject {
         guard surfaceState != .dropTarget, surfaceState != .intakeFeedback else {
             return false
         }
-        return unfinishedTaskCount > 0 || finalSuccessVisible
+        return (unfinishedTaskCount > 0 || finalSuccessVisible) && failedTasks.isEmpty && errorMessage == nil
     }
 
     private var hasSuccessfulTasks: Bool {
@@ -280,11 +350,15 @@ final class NotchViewModel: ObservableObject {
     }
 
     func expand() {
-        refreshSelectionCaptureAuthorization()
+        refreshShortcutPermissions()
         isDismissed = false
         if surfaceState == .idle {
-            guard canEnterHoverActions else { return }
-            surfaceState = .hoverActions
+            if !failedTasks.isEmpty || errorMessage != nil {
+                surfaceState = .error
+            } else {
+                guard canEnterHoverActions else { return }
+                surfaceState = .hoverActions
+            }
         }
         status = .expanded
     }
@@ -413,8 +487,17 @@ final class NotchViewModel: ObservableObject {
         selectionCaptureAuthorized = AXIsProcessTrusted()
     }
 
-    func openSelectionCaptureAccessibilitySettings() {
+    func refreshScreenshotCaptureAuthorization() {
+        screenshotCaptureAuthorized = CGPreflightScreenCaptureAccess()
+    }
+
+    func refreshShortcutPermissions() {
         refreshSelectionCaptureAuthorization()
+        refreshScreenshotCaptureAuthorization()
+    }
+
+    func openSelectionCaptureAccessibilitySettings() {
+        refreshShortcutPermissions()
         guard !selectionCaptureAuthorized else { return }
 
         let urls = [
@@ -424,6 +507,26 @@ final class NotchViewModel: ObservableObject {
 
         for url in urls where NSWorkspace.shared.open(url) {
             return
+        }
+    }
+
+    func openScreenRecordingSettings() {
+        refreshShortcutPermissions()
+        guard !screenshotCaptureAuthorized else { return }
+
+        _ = CGRequestScreenCaptureAccess()
+        refreshScreenshotCaptureAuthorization()
+
+        let urls = [
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture"
+        ]
+
+        for urlString in urls {
+            guard let url = URL(string: urlString) else { continue }
+            if NSWorkspace.shared.open(url) {
+                return
+            }
         }
     }
 
@@ -450,8 +553,71 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    func selectPreviousFailedTask() {
+        guard hasMultipleFailedTasks, let selected = selectedFailedTask else { return }
+        guard let currentIndex = failedTasks.firstIndex(where: { $0.id == selected.id }) else { return }
+        let nextIndex = currentIndex == 0 ? failedTasks.index(before: failedTasks.endIndex) : failedTasks.index(before: currentIndex)
+        selectedFailedTaskID = failedTasks[nextIndex].id
+    }
+
+    func selectNextFailedTask() {
+        guard hasMultipleFailedTasks, let selected = selectedFailedTask else { return }
+        guard let currentIndex = failedTasks.firstIndex(where: { $0.id == selected.id }) else { return }
+        let nextIndex = failedTasks.index(after: currentIndex)
+        let resolvedIndex = nextIndex == failedTasks.endIndex ? failedTasks.startIndex : nextIndex
+        selectedFailedTaskID = failedTasks[resolvedIndex].id
+    }
+
+    func retryCurrentError() {
+        if let failedTask = selectedFailedTask {
+            retryFailedTask(failedTask.id)
+            return
+        }
+        retryLastAction()
+    }
+
+    func dismissCurrentError() {
+        if let failedTask = selectedFailedTask {
+            dismissFailedTask(failedTask.id)
+            return
+        }
+
+        errorMessage = nil
+        lastFailedAction = nil
+        if surfaceState == .error {
+            surfaceState = .hoverActions
+        }
+    }
+
+    var currentErrorTitle: String {
+        if let failedTask = selectedFailedTask {
+            return failedTask.title
+        }
+        return CasebasePromptCatalog.ui.errorTitle
+    }
+
+    var currentErrorMessage: String {
+        if let failedTask = selectedFailedTask,
+           case let .failed(message) = failedTask.status {
+            return message
+        }
+        return errorMessage ?? CasebasePromptCatalog.ui.unknownErrorMessage
+    }
+
+    var currentErrorCopyText: String {
+        "\(currentErrorTitle)\n\(currentErrorMessage)"
+    }
+
+    var currentErrorIndexLabel: String? {
+        guard hasMultipleFailedTasks,
+              let selected = selectedFailedTask,
+              let currentIndex = failedTasks.firstIndex(where: { $0.id == selected.id })
+        else { return nil }
+        return "\(currentIndex + 1)/\(failedTasks.count)"
+    }
+
     func openSettings() {
-        refreshSelectionCaptureAuthorization()
+        refreshShortcutPermissions()
         guard surfaceState != .settings, surfaceState != .settingsDataResetConfirmation else { return }
         isDismissed = false
         restoredSurfaceStateBeforeSettings = surfaceState
@@ -908,6 +1074,7 @@ final class NotchViewModel: ObservableObject {
         feedbackScale = 1
         isDismissed = false
         isClearingStoredData = false
+        selectedFailedTaskID = nil
         surfaceState = .idle
         status = .collapsed
     }
@@ -1187,6 +1354,42 @@ final class NotchViewModel: ObservableObject {
             task.status = .failed(message)
             task.updatedAt = Date()
         }
+        if selectedFailedTaskID == nil {
+            selectedFailedTaskID = taskID
+        }
+    }
+
+    private func retryFailedTask(_ taskID: UUID) {
+        guard let failedTask = ingestTasks.first(where: { $0.id == taskID }) else { return }
+        removeFailedTask(taskID)
+        let joiningExistingQueue = unfinishedTaskCount > 0 || finalSuccessVisible
+        presentIntakeFeedback(message: joiningExistingQueue
+            ? CasebasePromptCatalog.ui.intakeQueuedFeedback
+            : CasebasePromptCatalog.ui.intakeDigestingFeedback)
+
+        Task { [weak self] in
+            await self?.enqueue([failedTask.payload])
+        }
+    }
+
+    private func dismissFailedTask(_ taskID: UUID) {
+        removeFailedTask(taskID)
+        if failedTasks.isEmpty, surfaceState == .error {
+            surfaceState = .hoverActions
+        }
+    }
+
+    private func removeFailedTask(_ taskID: UUID) {
+        ingestTasks.removeAll { $0.id == taskID }
+        syncSelectedFailedTask()
+    }
+
+    private func syncSelectedFailedTask() {
+        if let selectedFailedTaskID,
+           failedTasks.contains(where: { $0.id == selectedFailedTaskID }) {
+            return
+        }
+        selectedFailedTaskID = failedTasks.first?.id
     }
 
     private func updateTask(_ taskID: UUID, update: (inout NotchIngestTask) -> Void) {

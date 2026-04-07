@@ -163,7 +163,7 @@ final class NotchWindowController: NSWindowController {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.viewModel.refreshSelectionCaptureAuthorization()
+                self?.viewModel.refreshShortcutPermissions()
             }
         }
     }

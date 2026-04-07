@@ -5,11 +5,29 @@ struct NotchHoverActionsView: View {
     let onOpenSettings: () -> Void
     let showsSelectionCapturePrompt: Bool
     let onAuthorizeSelectionCapture: () -> Void
+    let showsScreenRecordingPrompt: Bool
+    let onAuthorizeScreenRecording: () -> Void
 
     var body: some View {
         VStack(spacing: 20) {
             if showsSelectionCapturePrompt {
-                selectionCapturePrompt
+                permissionPrompt(
+                    title: CasebasePromptCatalog.ui.hoverActionAccessibilityTitle,
+                    detail: CasebasePromptCatalog.ui.hoverActionAccessibilityDetail,
+                    buttonTitle: CasebasePromptCatalog.ui.hoverActionAccessibilityButton,
+                    iconName: "exclamationmark.triangle.fill",
+                    action: onAuthorizeSelectionCapture
+                )
+            }
+
+            if showsScreenRecordingPrompt {
+                permissionPrompt(
+                    title: CasebasePromptCatalog.ui.hoverActionScreenRecordingTitle,
+                    detail: CasebasePromptCatalog.ui.hoverActionScreenRecordingDetail,
+                    buttonTitle: CasebasePromptCatalog.ui.hoverActionScreenRecordingButton,
+                    iconName: "display.trianglebadge.exclamationmark",
+                    action: onAuthorizeScreenRecording
+                )
             }
 
             HStack(spacing: 14) {
@@ -39,9 +57,15 @@ struct NotchHoverActionsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private var selectionCapturePrompt: some View {
+    private func permissionPrompt(
+        title: String,
+        detail: String,
+        buttonTitle: String,
+        iconName: String,
+        action: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: iconName)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color(red: 1.0, green: 0.83, blue: 0.34))
                 .frame(width: 30, height: 30)
@@ -51,13 +75,13 @@ struct NotchHoverActionsView: View {
                 )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(CasebasePromptCatalog.ui.hoverActionAccessibilityTitle)
+                Text(title)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if !CasebasePromptCatalog.ui.hoverActionAccessibilityDetail.isEmpty {
-                    Text(CasebasePromptCatalog.ui.hoverActionAccessibilityDetail)
+                if !detail.isEmpty {
+                    Text(detail)
                         .font(.system(size: 11))
                         .foregroundStyle(Color.white.opacity(0.68))
                         .fixedSize(horizontal: false, vertical: true)
@@ -66,8 +90,8 @@ struct NotchHoverActionsView: View {
 
             Spacer(minLength: 0)
 
-            Button(action: onAuthorizeSelectionCapture) {
-                Text(CasebasePromptCatalog.ui.hoverActionAccessibilityButton)
+            Button(action: action) {
+                Text(buttonTitle)
             }
             .buttonStyle(NotchActionButtonStyle(prominent: false))
         }
