@@ -24,7 +24,7 @@ struct NotchTaskPanelView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Text(CasebasePromptCatalog.ui.taskPanelTitle)
+            Text(viewModel.firstNeedsInputTask == nil ? CasebasePromptCatalog.ui.taskPanelTitle : CasebasePromptCatalog.ui.taskSupplementTitle)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.white)
 
@@ -67,19 +67,7 @@ struct NotchTaskPanelView: View {
         if let clarificationRequest = viewModel.clarificationRequest(for: task.id),
            let currentQuestion = viewModel.currentClarificationQuestion(for: task.id)
         {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(CasebasePromptCatalog.ui.taskSupplementTitle)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-
-                    Text(task.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.68))
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
+            VStack(alignment: .leading, spacing: 14) {
                 Group {
                     if isMeasuring {
                         clarificationContent(
@@ -99,38 +87,38 @@ struct NotchTaskPanelView: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     if let validationMessage = viewModel.clarificationValidationMessage(for: task.id) {
                         Text(validationMessage)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Color(red: 1.0, green: 0.58, blue: 0.58))
                     }
 
-                    HStack(alignment: .bottom, spacing: 10) {
-                        Button(action: { viewModel.skipClarificationQuestion(task.id) }) {
-                            Text(CasebasePromptCatalog.ui.taskSupplementDismissButton)
-                        }
-                        .buttonStyle(NotchActionButtonStyle(prominent: false))
-
+                    HStack(spacing: 8) {
                         Spacer(minLength: 0)
 
-                        VStack(alignment: .trailing, spacing: 5) {
-                            if viewModel.isLastClarificationQuestion(for: task.id) {
-                                Button(action: { viewModel.submitClarification(task.id) }) {
-                                    Text(CasebasePromptCatalog.ui.taskSupplementContinueButton)
-                                }
-                                .buttonStyle(NotchActionButtonStyle(prominent: true))
-                            } else {
-                                Button(action: { viewModel.goToNextClarificationQuestion(task.id) }) {
-                                    Text(CasebasePromptCatalog.ui.taskClarificationNextButton)
-                                }
-                                .buttonStyle(NotchActionButtonStyle(prominent: true))
-                            }
+                        LibraryActionTileButton(
+                            systemImage: "forward.end.fill",
+                            title: CasebasePromptCatalog.ui.taskSupplementDismissButton,
+                            action: { viewModel.skipClarificationQuestion(task.id) }
+                        )
+                        .frame(width: 92)
 
-                            Text(clarificationProgressSummary(for: task))
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Color.white.opacity(0.52))
-                        }
+                        LibraryActionTileButton(
+                            systemImage: viewModel.isLastClarificationQuestion(for: task.id) ? "checkmark" : "arrow.right",
+                            title: viewModel.isLastClarificationQuestion(for: task.id)
+                                ? CasebasePromptCatalog.ui.taskSupplementContinueButton
+                                : CasebasePromptCatalog.ui.taskClarificationNextButton,
+                            subtitle: clarificationQuestionProgressLabel(for: task.id),
+                            action: {
+                                if viewModel.isLastClarificationQuestion(for: task.id) {
+                                    viewModel.submitClarification(task.id)
+                                } else {
+                                    viewModel.goToNextClarificationQuestion(task.id)
+                                }
+                            }
+                        )
+                        .frame(width: 126)
                     }
                 }
             }
@@ -152,18 +140,8 @@ struct NotchTaskPanelView: View {
         clarificationRequest: ClarificationRequest,
         currentQuestion: ClarificationQuestion
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(CasebasePromptCatalog.ui.taskClarificationUncertaintyLabel)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.5))
-
-                Text(clarificationRequest.uncertaintySummary)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
-
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(currentQuestion.title)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
@@ -206,24 +184,12 @@ struct NotchTaskPanelView: View {
         return clarificationRequest.impactExplanation.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func clarificationProgressSummary(for task: NotchIngestTask) -> String {
-        var parts = [
-            CasebasePromptCatalog.ui.taskClarificationRoundLabel(
-                current: min((task.record?.clarificationRoundCount ?? 0) + 1, viewModel.maxClarificationRounds),
-                maximum: viewModel.maxClarificationRounds
-            )
-        ]
-
-        if let progress = viewModel.clarificationQuestionProgress(for: task.id) {
-            parts.append(
-                CasebasePromptCatalog.ui.taskClarificationQuestionProgressLabel(
-                    current: progress.current,
-                    total: progress.total
-                )
-            )
-        }
-
-        return parts.joined(separator: " · ")
+    private func clarificationQuestionProgressLabel(for taskID: UUID) -> String? {
+        guard let progress = viewModel.clarificationQuestionProgress(for: taskID) else { return nil }
+        return CasebasePromptCatalog.ui.taskClarificationQuestionProgressLabel(
+            current: progress.current,
+            total: progress.total
+        )
     }
 
     private func taskRow(_ task: NotchIngestTask) -> some View {
@@ -292,6 +258,7 @@ private struct ClarificationQuestionOptionsSection: View {
     let question: ClarificationQuestion
     @Binding var answer: String
     let onSelectOption: (String) -> Void
+    @State private var manualInputText = ""
     @FocusState private var isManualInputFocused: Bool
 
     private var normalizedAnswer: String {
@@ -307,23 +274,30 @@ private struct ClarificationQuestionOptionsSection: View {
             ForEach(question.suggestedOptions, id: \.self) { option in
                 Button(action: {
                     isManualInputFocused = false
+                    manualInputText = ""
                     onSelectOption(option)
                 }) {
                     HStack(spacing: 10) {
+                        ZStack {
+                            Circle()
+                                .fill(normalizedAnswer == option ? Color.white.opacity(0.16) : Color.white.opacity(0.06))
+                                .frame(width: 22, height: 22)
+
+                            if normalizedAnswer == option {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+
                         Text(option)
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(normalizedAnswer == option ? Color.black : Color.white.opacity(0.88))
+                            .foregroundStyle(.white)
                             .multilineTextAlignment(.leading)
                             .lineLimit(nil)
                             .fixedSize(horizontal: false, vertical: true)
 
                         Spacer(minLength: 0)
-
-                        if normalizedAnswer == option {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundStyle(.black.opacity(0.8))
-                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -332,17 +306,26 @@ private struct ClarificationQuestionOptionsSection: View {
 
             manualInputOption
         }
+        .onAppear(perform: syncManualInput)
+        .onChange(of: question.id) { _, _ in
+            syncManualInput()
+        }
+        .onChange(of: answer) { _, _ in
+            syncManualInput()
+        }
     }
 
     private var manualInputOption: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(CasebasePromptCatalog.ui.taskClarificationManualInputButton)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(manualInputSelected ? Color.white.opacity(0.9) : Color.white.opacity(0.58))
-
+        VStack(alignment: .leading, spacing: 0) {
             TextField(
                 "",
-                text: $answer,
+                text: Binding(
+                    get: { manualInputText },
+                    set: { newValue in
+                        manualInputText = newValue
+                        answer = newValue
+                    }
+                ),
                 prompt: Text(CasebasePromptCatalog.ui.taskSupplementPlaceholder)
                     .foregroundStyle(Color.white.opacity(0.34))
             )
@@ -376,7 +359,18 @@ private struct ClarificationQuestionOptionsSection: View {
         if question.suggestedOptions.contains(normalizedAnswer) {
             answer = ""
         }
+        if manualInputText.isEmpty {
+            manualInputText = ""
+        }
         isManualInputFocused = true
+    }
+
+    private func syncManualInput() {
+        if question.suggestedOptions.contains(normalizedAnswer) {
+            manualInputText = ""
+        } else {
+            manualInputText = answer
+        }
     }
 }
 
@@ -385,16 +379,43 @@ private struct ClarificationOptionRowButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.92) : Color.white.opacity(0.05))
+                    .fill(
+                        LinearGradient(
+                            colors: isSelected
+                                ? [
+                                    Color(red: 0.17, green: 0.26, blue: 0.41),
+                                    Color(red: 0.10, green: 0.16, blue: 0.28)
+                                ]
+                                : [
+                                    Color.white.opacity(0.07),
+                                    Color.white.opacity(0.035)
+                                ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
             )
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Color.white.opacity(isSelected ? 0.0 : 0.08), lineWidth: 1)
+                    .strokeBorder(
+                        isSelected
+                            ? Color(red: 0.56, green: 0.78, blue: 1.0).opacity(0.42)
+                            : Color.white.opacity(0.08),
+                        lineWidth: 1
+                    )
             }
+            .shadow(
+                color: isSelected
+                    ? Color(red: 0.26, green: 0.49, blue: 0.86).opacity(configuration.isPressed ? 0.08 : 0.16)
+                    : .clear,
+                radius: 14,
+                x: 0,
+                y: 8
+            )
             .opacity(configuration.isPressed ? 0.82 : 1)
     }
 }

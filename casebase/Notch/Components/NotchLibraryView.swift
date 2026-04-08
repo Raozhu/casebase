@@ -392,12 +392,14 @@ struct LibraryTagPill: View {
 struct LibraryActionTileButton: View {
     let systemImage: String
     let title: String
+    let subtitle: String?
     let isDestructive: Bool
     let action: () -> Void
 
-    init(systemImage: String, title: String, isDestructive: Bool = false, action: @escaping () -> Void) {
+    init(systemImage: String, title: String, subtitle: String? = nil, isDestructive: Bool = false, action: @escaping () -> Void) {
         self.systemImage = systemImage
         self.title = title
+        self.subtitle = subtitle
         self.isDestructive = isDestructive
         self.action = action
     }
@@ -407,12 +409,26 @@ struct LibraryActionTileButton: View {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
                     .font(.system(size: 12, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
+                if let subtitle, !subtitle.isEmpty {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+
+                        Text(subtitle)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle((isDestructive ? Color(red: 1.0, green: 0.74, blue: 0.74) : Color.white).opacity(0.62))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(title)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                }
             }
             .foregroundStyle(isDestructive ? Color(red: 1.0, green: 0.74, blue: 0.74) : .white)
-            .frame(maxWidth: .infinity, minHeight: 36)
+            .frame(maxWidth: .infinity, minHeight: subtitle == nil ? 36 : 42)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(isDestructive ? Color(red: 0.18, green: 0.07, blue: 0.08) : Color.white.opacity(0.05))

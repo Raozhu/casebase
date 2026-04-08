@@ -1352,6 +1352,7 @@ final class NotchViewModel: ObservableObject {
         noticeMessage = nil
         latestAnswer = nil
         draftQuestion = ""
+        let needsClarification = requiresSupplement(for: record)
 
         updateTask(taskID) { task in
             task.title = record.title
@@ -1362,7 +1363,11 @@ final class NotchViewModel: ObservableObject {
             task.clarificationValidationMessage = nil
             task.currentClarificationQuestionIndex = 0
             task.updatedAt = Date()
-            task.status = requiresSupplement(for: record) ? .needsInput : .succeeded
+            task.status = needsClarification ? .needsInput : .succeeded
+        }
+
+        if needsClarification {
+            presentClarificationPanel()
         }
 
         if let mockAnswerService = answerService as? MockAnswerService {
@@ -1402,6 +1407,16 @@ final class NotchViewModel: ObservableObject {
         if selectedFailedTaskID == nil {
             selectedFailedTaskID = taskID
         }
+    }
+
+    private func presentClarificationPanel() {
+        intakeFeedbackTask?.cancel()
+        intakeFeedbackMessage = nil
+        isDropTargeted = false
+        isDismissed = false
+        isPinnedExpanded = true
+        surfaceState = .taskPanel
+        status = .expanded
     }
 
     private func retryFailedTask(_ taskID: UUID) {
