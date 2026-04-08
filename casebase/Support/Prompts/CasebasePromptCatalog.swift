@@ -623,8 +623,8 @@ enum CasebasePromptCatalog {
 
         var taskSupplementPlaceholder: String {
             switch language {
-            case .simplifiedChinese: return "手动输入…"
-            case .english: return "Type manually..."
+            case .simplifiedChinese: return "手动输入"
+            case .english: return "Type manually"
             }
         }
 

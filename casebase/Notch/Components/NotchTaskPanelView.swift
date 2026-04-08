@@ -94,22 +94,24 @@ struct NotchTaskPanelView: View {
                             .foregroundStyle(Color(red: 1.0, green: 0.58, blue: 0.58))
                     }
 
-                    HStack(spacing: 8) {
-                        Spacer(minLength: 0)
-
-                        LibraryActionTileButton(
-                            systemImage: "forward.end.fill",
+                    HStack(alignment: .center, spacing: 10) {
+                        ClarificationFooterButton(
                             title: CasebasePromptCatalog.ui.taskSupplementDismissButton,
+                            systemImage: "forward.end",
+                            role: .secondary,
                             action: { viewModel.skipClarificationQuestion(task.id) }
                         )
-                        .frame(width: 92)
+                        .frame(maxWidth: .infinity)
 
-                        LibraryActionTileButton(
-                            systemImage: viewModel.isLastClarificationQuestion(for: task.id) ? "checkmark" : "arrow.right",
+                        ClarificationFooterButton(
                             title: viewModel.isLastClarificationQuestion(for: task.id)
                                 ? CasebasePromptCatalog.ui.taskSupplementContinueButton
                                 : CasebasePromptCatalog.ui.taskClarificationNextButton,
-                            subtitle: clarificationQuestionProgressLabel(for: task.id),
+                            systemImage: viewModel.isLastClarificationQuestion(for: task.id)
+                                ? "sparkles"
+                                : "arrow.right",
+                            progressText: clarificationQuestionProgressText(for: task.id),
+                            role: .primary,
                             action: {
                                 if viewModel.isLastClarificationQuestion(for: task.id) {
                                     viewModel.submitClarification(task.id)
@@ -118,18 +120,9 @@ struct NotchTaskPanelView: View {
                                 }
                             }
                         )
-                        .frame(width: 126)
+                        .frame(maxWidth: .infinity)
                     }
                 }
-            }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.035))
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
@@ -184,12 +177,9 @@ struct NotchTaskPanelView: View {
         return clarificationRequest.impactExplanation.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func clarificationQuestionProgressLabel(for taskID: UUID) -> String? {
+    private func clarificationQuestionProgressText(for taskID: UUID) -> String? {
         guard let progress = viewModel.clarificationQuestionProgress(for: taskID) else { return nil }
-        return CasebasePromptCatalog.ui.taskClarificationQuestionProgressLabel(
-            current: progress.current,
-            total: progress.total
-        )
+        return "\(progress.current)/\(progress.total)"
     }
 
     private func taskRow(_ task: NotchIngestTask) -> some View {
@@ -270,7 +260,7 @@ private struct ClarificationQuestionOptionsSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(question.suggestedOptions, id: \.self) { option in
                 Button(action: {
                     isManualInputFocused = false
@@ -278,18 +268,6 @@ private struct ClarificationQuestionOptionsSection: View {
                     onSelectOption(option)
                 }) {
                     HStack(spacing: 10) {
-                        ZStack {
-                            Circle()
-                                .fill(normalizedAnswer == option ? Color.white.opacity(0.16) : Color.white.opacity(0.06))
-                                .frame(width: 22, height: 22)
-
-                            if normalizedAnswer == option {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
-                            }
-                        }
-
                         Text(option)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.white)
@@ -298,6 +276,13 @@ private struct ClarificationQuestionOptionsSection: View {
                             .fixedSize(horizontal: false, vertical: true)
 
                         Spacer(minLength: 0)
+
+                        if normalizedAnswer == option {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(Color.white.opacity(0.92))
+                                .transition(.scale.combined(with: .opacity))
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -316,36 +301,25 @@ private struct ClarificationQuestionOptionsSection: View {
     }
 
     private var manualInputOption: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            TextField(
-                "",
-                text: Binding(
-                    get: { manualInputText },
-                    set: { newValue in
-                        manualInputText = newValue
-                        answer = newValue
-                    }
-                ),
-                prompt: Text(CasebasePromptCatalog.ui.taskSupplementPlaceholder)
-                    .foregroundStyle(Color.white.opacity(0.34))
-            )
-            .textFieldStyle(.plain)
-            .font(.system(size: 12))
-            .foregroundStyle(.white)
-            .focused($isManualInputFocused)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(manualInputSelected ? Color.white.opacity(0.09) : Color.white.opacity(0.04))
+        TextField(
+            "",
+            text: Binding(
+                get: { manualInputText },
+                set: { newValue in
+                    manualInputText = newValue
+                    answer = newValue
+                }
+            ),
+            prompt: Text(CasebasePromptCatalog.ui.taskSupplementPlaceholder)
+                .foregroundStyle(Color.white.opacity(0.34))
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(manualInputSelected ? 0.16 : 0.08), lineWidth: 1)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .textFieldStyle(.plain)
+        .font(.system(size: 12))
+        .foregroundStyle(.white.opacity(manualInputSelected ? 0.96 : 0.84))
+        .focused($isManualInputFocused)
+        .padding(.top, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
         .onTapGesture {
             activateManualInput()
         }
@@ -380,43 +354,107 @@ private struct ClarificationOptionRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(.horizontal, 14)
-            .padding(.vertical, 13)
+            .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(
-                        LinearGradient(
-                            colors: isSelected
-                                ? [
-                                    Color(red: 0.17, green: 0.26, blue: 0.41),
-                                    Color(red: 0.10, green: 0.16, blue: 0.28)
-                                ]
-                                : [
-                                    Color.white.opacity(0.07),
-                                    Color.white.opacity(0.035)
-                                ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+                        isSelected
+                            ? Color.white.opacity(0.075)
+                            : Color.white.opacity(0.02)
                     )
             )
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(
                         isSelected
-                            ? Color(red: 0.56, green: 0.78, blue: 1.0).opacity(0.42)
-                            : Color.white.opacity(0.08),
+                            ? Color.white.opacity(0.12)
+                            : Color.white.opacity(0.03),
                         lineWidth: 1
                     )
             }
-            .shadow(
-                color: isSelected
-                    ? Color(red: 0.26, green: 0.49, blue: 0.86).opacity(configuration.isPressed ? 0.08 : 0.16)
-                    : .clear,
-                radius: 14,
-                x: 0,
-                y: 8
-            )
             .opacity(configuration.isPressed ? 0.82 : 1)
+    }
+}
+
+private struct ClarificationFooterButton: View {
+    enum Role {
+        case secondary
+        case primary
+    }
+
+    let title: String
+    let systemImage: String
+    let progressText: String?
+    let role: Role
+    let action: () -> Void
+
+    init(
+        title: String,
+        systemImage: String,
+        progressText: String? = nil,
+        role: Role,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.progressText = progressText
+        self.role = role
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 12)
+
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                if let progressText, role == .primary {
+                    Text(progressText)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.black.opacity(0.62))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.black.opacity(0.08))
+                        )
+                }
+            }
+            .foregroundStyle(role == .primary ? Color.black : Color.white.opacity(0.82))
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .background(background)
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var background: some ShapeStyle {
+        switch role {
+        case .secondary:
+            return AnyShapeStyle(Color.white.opacity(0.045))
+        case .primary:
+            return AnyShapeStyle(Color.white)
+        }
+    }
+
+    private var borderColor: Color {
+        switch role {
+        case .secondary:
+            return Color.white.opacity(0.06)
+        case .primary:
+            return Color.white.opacity(0.12)
+        }
     }
 }
 

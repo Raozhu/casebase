@@ -14,6 +14,11 @@ final class NotchViewModel: ObservableObject {
     enum CollapsedIndicator {
         case warning
         case error
+        case preparing
+        case recognizing
+        case storing
+        case needsInput
+        case success
     }
 
     private enum FailedAction: Equatable {
@@ -27,6 +32,14 @@ final class NotchViewModel: ObservableObject {
     let hoverExpandedPanelSize = CGSize(width: 420, height: 150)
     let hoverExpandedPanelUnauthorizedMinHeight: CGFloat = 176
     let maxAdaptiveExpandedPanelHeight: CGFloat = 640
+    let libraryPreferredPanelHeight: CGFloat = 384
+    let libraryMaxPanelHeight: CGFloat = 456
+    let libraryDetailPreferredPanelHeight: CGFloat = 468
+    let libraryDetailMaxPanelHeight: CGFloat = 548
+    let savedPreviewPreferredPanelHeight: CGFloat = 404
+    let savedPreviewMaxPanelHeight: CGFloat = 488
+    let taskPanelPreferredPanelHeight: CGFloat = 372
+    let taskPanelMaxPanelHeight: CGFloat = 520
     let taskRailSpacing: CGFloat = 8
     let taskRailVerticalSpacing: CGFloat = 8
     let intakeFeedbackDurationNs: UInt64 = 520_000_000
@@ -157,7 +170,7 @@ final class NotchViewModel: ObservableObject {
     }
 
     var collapsedTrailingExtensionWidth: CGFloat {
-        guard collapsedIndicator == .error, failedTasks.count > 1, !isExpanded else { return 0 }
+        guard collapsedTrailingText != nil, !isExpanded else { return 0 }
         return 34
     }
 
@@ -267,6 +280,20 @@ final class NotchViewModel: ObservableObject {
         if !failedTasks.isEmpty || (surfaceState == .error && errorMessage != nil) {
             return .error
         }
+        if showsTaskRail {
+            switch taskRailState {
+            case .preparing:
+                return .preparing
+            case .recognizing:
+                return .recognizing
+            case .storing:
+                return .storing
+            case .needsInput:
+                return .needsInput
+            case .success:
+                return .success
+            }
+        }
         if hasMissingShortcutPermissions {
             return .warning
         }
@@ -341,16 +368,106 @@ final class NotchViewModel: ObservableObject {
         return count >= 10 ? "9+" : "\(count)"
     }
 
-    var taskRailWidth: CGFloat {
-        var width: CGFloat = taskRailState == .success || taskRailState == .needsInput ? 56 : 160
-        if taskRailBadgeText != nil {
-            width += 36
+    var collapsedTrailingText: String? {
+        if !failedTasks.isEmpty, collapsedIndicator == .error, failedTasks.count > 1 {
+            return failedTasks.count >= 10 ? "9+" : "\(failedTasks.count)"
         }
-        return width
+
+        guard showsTaskRail else { return nil }
+        switch taskRailState {
+        case .preparing, .recognizing, .storing:
+            return taskRailBadgeText
+        case .needsInput, .success:
+            return nil
+        }
+    }
+
+    var taskRailDisplayText: String {
+        if finalSuccessVisible, unfinishedTaskCount == 0 {
+            return localizedPreviewLabel(chinese: "已完成入库", english: "Saved to casebase")
+        }
+
+        guard let railTask = currentRailTask else {
+            return CasebasePromptCatalog.ui.taskRecognizingDetail
+        }
+
+        if let thinkingText = condensedThinkingText(for: railTask), !thinkingText.isEmpty {
+            return thinkingText
+        }
+
+        switch railTask.status {
+        case .queued, .preparing:
+            return CasebasePromptCatalog.ui.taskPreparingDetail
+        case .recognizing:
+            return localizedPreviewLabel(chinese: "正在思考中…", english: "Thinking…")
+        case .storing:
+            return CasebasePromptCatalog.ui.taskStoringDetail
+        case .needsInput:
+            return localizedPreviewLabel(chinese: "还差一点关键信息", english: "One key detail is still missing")
+        case .succeeded:
+            return CasebasePromptCatalog.ui.taskSucceededDetail
+        case let .failed(message):
+            return message
+        }
+    }
+
+    var taskRailShowsShimmer: Bool {
+        switch taskRailState {
+        case .success:
+            return false
+        case .preparing, .recognizing, .storing, .needsInput:
+            return true
+        }
     }
 
     var taskRailOffsetY: CGFloat {
         max(0, displayCutoutRect.height + taskRailVerticalSpacing)
+    }
+
+    private var currentRailTask: NotchIngestTask? {
+        if let task = firstNeedsInputTask {
+            return task
+        }
+        if let task = ingestTasks.first(where: { $0.status == .recognizing }) {
+            return task
+        }
+        if let task = ingestTasks.first(where: { $0.status == .storing }) {
+            return task
+        }
+        if let task = ingestTasks.first(where: { $0.status == .preparing }) {
+            return task
+        }
+        if let task = ingestTasks.first(where: { $0.status == .queued }) {
+            return task
+        }
+        return ingestTasks.first(where: { $0.status == .succeeded })
+    }
+
+    private func condensedThinkingText(for task: NotchIngestTask) -> String? {
+        let rawText: String?
+
+        if let thinkingText = task.thinkingText, !thinkingText.isEmpty {
+            rawText = thinkingText
+        } else if task.status == .needsInput,
+                  let uncertainty = task.record?.clarificationRequest?.uncertaintySummary,
+                  !uncertainty.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            rawText = uncertainty
+        } else {
+            rawText = detailText(for: task)
+        }
+
+        guard let rawText else { return nil }
+        let normalized = rawText
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !normalized.isEmpty else { return nil }
+        let limit = 38
+        if normalized.count <= limit {
+            return normalized
+        }
+        return String(normalized.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
     func updateScreenFrame(_ frame: CGRect) {
@@ -432,12 +549,9 @@ final class NotchViewModel: ObservableObject {
 
         suppressHoverUntilMouseExit = true
         let joiningExistingQueue = unfinishedTaskCount > 0 || finalSuccessVisible
-        presentIntakeFeedback(
-            message: joiningExistingQueue
-                ? CasebasePromptCatalog.ui.intakeQueuedFeedback
-                : CasebasePromptCatalog.ui.intakeDigestingFeedback,
-            expandsSurface: false
-        )
+        presentIntakeFeedback(message: joiningExistingQueue
+            ? CasebasePromptCatalog.ui.intakeQueuedFeedback
+            : CasebasePromptCatalog.ui.intakeDigestingFeedback)
 
         Task { [weak self] in
             guard let self else { return }
@@ -1063,9 +1177,9 @@ final class NotchViewModel: ObservableObject {
                     id: record.id,
                     clarificationAnswers: clarificationAnswers,
                     skippedQuestionTitles: skippedQuestionTitles
-                ) { [weak self] phase in
+                ) { [weak self] progress in
                     Task { @MainActor [weak self] in
-                        self?.applyProgressPhase(phase, to: taskID)
+                        self?.applyProgressUpdate(progress, to: taskID)
                     }
                 }
 
@@ -1304,9 +1418,9 @@ final class NotchViewModel: ObservableObject {
             }
 
             do {
-                let record = try await importCoordinator.importPayload(task.payload) { [weak self] phase in
+                let record = try await importCoordinator.importPayload(task.payload) { [weak self] progress in
                     Task { @MainActor [weak self] in
-                        self?.applyProgressPhase(phase, to: task.id)
+                        self?.applyProgressUpdate(progress, to: task.id)
                     }
                 }
 
@@ -1334,9 +1448,9 @@ final class NotchViewModel: ObservableObject {
         })
     }
 
-    private func applyProgressPhase(_ phase: ImportProcessingPhase, to taskID: UUID) {
+    private func applyProgressUpdate(_ progress: ImportProgressUpdate, to taskID: UUID) {
         updateTask(taskID) { task in
-            switch phase {
+            switch progress.phase {
             case .preparing:
                 task.status = .preparing
             case .recognizing:
@@ -1344,6 +1458,10 @@ final class NotchViewModel: ObservableObject {
             case .storing:
                 task.status = .storing
             }
+            if let thoughtText = progress.thoughtText, !thoughtText.isEmpty {
+                task.thinkingText = thoughtText
+            }
+            task.updatedAt = Date()
         }
     }
 
@@ -1591,7 +1709,7 @@ final class NotchViewModel: ObservableObject {
         CasebasePromptCatalog.language == .simplifiedChinese ? chinese : english
     }
 
-    private func presentIntakeFeedback(message: String, expandsSurface: Bool = true) {
+    private func presentIntakeFeedback(message: String) {
         intakeFeedbackTask?.cancel()
         errorMessage = nil
         noticeMessage = nil
@@ -1599,12 +1717,7 @@ final class NotchViewModel: ObservableObject {
         isDropTargeted = false
         pulseFeedback()
 
-        if expandsSurface {
-            isPinnedExpanded = false
-            isDismissed = false
-            surfaceState = .intakeFeedback
-            status = .expanded
-        } else if surfaceState == .dropTarget || surfaceState == .intakeFeedback {
+        if surfaceState == .dropTarget || surfaceState == .intakeFeedback {
             isPinnedExpanded = false
             isDismissed = false
             surfaceState = .idle
@@ -1615,9 +1728,6 @@ final class NotchViewModel: ObservableObject {
             guard let self else { return }
             try? await Task.sleep(nanoseconds: self.intakeFeedbackDurationNs)
             self.intakeFeedbackMessage = nil
-            guard expandsSurface, self.surfaceState == .intakeFeedback else { return }
-            self.surfaceState = .idle
-            self.status = .collapsed
         }
     }
 
@@ -1773,7 +1883,43 @@ final class NotchViewModel: ObservableObject {
 
     private func adaptiveExpandedHeight(for state: CasebaseSurfaceState, minimum: CGFloat) -> CGFloat {
         guard state.usesAdaptiveExpandedHeight else { return minimum }
-        let measuredHeight = measuredExpandedContentHeights[state] ?? minimum
-        return min(max(measuredHeight, minimum), maxAdaptiveExpandedPanelHeight)
+        let preferredHeight = preferredAdaptiveExpandedHeight(for: state, minimum: minimum)
+        let measuredHeight = measuredExpandedContentHeights[state] ?? preferredHeight
+        let maximumHeight = maximumAdaptiveExpandedHeight(for: state)
+        return min(max(max(measuredHeight, preferredHeight), minimum), maximumHeight)
+    }
+
+    private func preferredAdaptiveExpandedHeight(for state: CasebaseSurfaceState, minimum: CGFloat) -> CGFloat {
+        switch state {
+        case .hoverActions:
+            return selectionCaptureAuthorized
+                ? hoverExpandedPanelSize.height
+                : hoverExpandedPanelUnauthorizedMinHeight
+        case .library:
+            return libraryPreferredPanelHeight
+        case .libraryDetail:
+            return libraryDetailPreferredPanelHeight
+        case .savedPreview:
+            return savedPreviewPreferredPanelHeight
+        case .taskPanel:
+            return taskPanelPreferredPanelHeight
+        default:
+            return minimum
+        }
+    }
+
+    private func maximumAdaptiveExpandedHeight(for state: CasebaseSurfaceState) -> CGFloat {
+        switch state {
+        case .library:
+            return libraryMaxPanelHeight
+        case .libraryDetail:
+            return libraryDetailMaxPanelHeight
+        case .savedPreview:
+            return savedPreviewMaxPanelHeight
+        case .taskPanel:
+            return taskPanelMaxPanelHeight
+        default:
+            return maxAdaptiveExpandedPanelHeight
+        }
     }
 }

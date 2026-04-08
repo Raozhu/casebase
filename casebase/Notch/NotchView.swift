@@ -35,8 +35,10 @@ struct NotchHoverView: View {
                     .zIndex(1)
             }
 
-            if viewModel.collapsedTrailingExtensionWidth > 0 {
-                CollapsedErrorCountView(count: viewModel.failedTasks.count)
+            if let collapsedTrailingText = viewModel.collapsedTrailingText,
+               viewModel.collapsedTrailingExtensionWidth > 0
+            {
+                CollapsedTrailingBadgeView(text: collapsedTrailingText)
                     .frame(
                         width: viewModel.collapsedTrailingExtensionWidth,
                         height: viewModel.surfaceSize.height,
@@ -53,7 +55,8 @@ struct NotchHoverView: View {
             if viewModel.showsTaskRail {
                 NotchTaskRailView(
                     state: viewModel.taskRailState,
-                    badgeText: viewModel.taskRailBadgeText,
+                    text: viewModel.taskRailDisplayText,
+                    showsShimmer: viewModel.taskRailShowsShimmer,
                     onTap: viewModel.openTaskPanel
                 )
                 .offset(y: viewModel.taskRailOffsetY)
@@ -137,11 +140,11 @@ struct NotchHoverView: View {
     }
 }
 
-private struct CollapsedErrorCountView: View {
-    let count: Int
+private struct CollapsedTrailingBadgeView: View {
+    let text: String
 
     var body: some View {
-        Text(count >= 10 ? "9+" : "\(count)")
+        Text(text)
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.white)
             .frame(minWidth: 18)
@@ -154,26 +157,98 @@ private struct CollapsedIndicatorView: View {
     var body: some View {
         switch indicator {
         case .warning:
-            Image(systemName: "exclamationmark")
-                .font(.system(size: 12, weight: .heavy))
-                .foregroundStyle(Color.black)
-                .frame(width: 18, height: 18)
-                .background(
-                    Circle()
-                        .fill(Color(red: 1.0, green: 0.84, blue: 0.32))
-                )
+            collapsedIndicatorIcon(
+                systemName: "exclamationmark",
+                fill: Color(red: 1.0, green: 0.84, blue: 0.32),
+                foreground: .black
+            )
         case .error:
-            Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .heavy))
-                .foregroundStyle(.white)
-                .frame(width: 18, height: 18)
-                .background(
-                    Circle()
-                        .fill(Color(red: 0.91, green: 0.25, blue: 0.25))
-                )
+            collapsedIndicatorIcon(
+                systemName: "xmark",
+                fill: Color(red: 0.91, green: 0.25, blue: 0.25),
+                foreground: .white
+            )
+        case .preparing:
+            collapsedIndicatorIcon(
+                systemName: "ellipsis",
+                fill: Color.white.opacity(0.92),
+                foreground: .black
+            )
+        case .recognizing:
+            AnimatedCollapsedIndicatorIcon(
+                systemName: "sparkles",
+                fill: Color(red: 0.62, green: 0.84, blue: 1.0),
+                foreground: .black,
+                rotates: true
+            )
+        case .storing:
+            collapsedIndicatorIcon(
+                systemName: "arrow.down",
+                fill: Color(red: 0.64, green: 1.0, blue: 0.82),
+                foreground: .black
+            )
+        case .needsInput:
+            collapsedIndicatorIcon(
+                systemName: "questionmark",
+                fill: Color(red: 1.0, green: 0.84, blue: 0.32),
+                foreground: .black
+            )
+        case .success:
+            collapsedIndicatorIcon(
+                systemName: "checkmark",
+                fill: Color.white.opacity(0.94),
+                foreground: .black
+            )
         case nil:
             EmptyView()
         }
+    }
+
+    @ViewBuilder
+    private func collapsedIndicatorIcon(systemName: String, fill: Color, foreground: Color) -> some View {
+        AnimatedCollapsedIndicatorIcon(
+            systemName: systemName,
+            fill: fill,
+            foreground: foreground,
+            rotates: false
+        )
+    }
+}
+
+private struct AnimatedCollapsedIndicatorIcon: View {
+    let systemName: String
+    let fill: Color
+    let foreground: Color
+    let rotates: Bool
+
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 11, weight: .heavy))
+            .foregroundStyle(foreground)
+            .rotationEffect(.degrees(rotation))
+            .frame(width: 18, height: 18)
+            .background(
+                Circle()
+                    .fill(fill)
+            )
+            .onAppear {
+                updateRotation()
+            }
+            .onChange(of: rotates) {
+                updateRotation()
+            }
+            .animation(
+                rotates
+                    ? .linear(duration: 1.4).repeatForever(autoreverses: false)
+                    : .default,
+                value: rotation
+            )
+    }
+
+    private func updateRotation() {
+        rotation = rotates ? 360 : 0
     }
 }
 

@@ -234,6 +234,7 @@ struct AnalysisResult: Codable, Hashable {
     let purpose: String
     let title: String
     let shortSummary: String
+    let aiThoughtSummary: String?
     let usefulSnippets: [String]
     let tags: [String]
     let structuredData: [String: StructuredFieldValue]
@@ -247,6 +248,7 @@ struct AnalysisResult: Codable, Hashable {
         purpose: String,
         title: String,
         shortSummary: String,
+        aiThoughtSummary: String? = nil,
         usefulSnippets: [String] = [],
         tags: [String] = [],
         structuredData: [String: StructuredFieldValue] = [:],
@@ -259,6 +261,7 @@ struct AnalysisResult: Codable, Hashable {
         self.purpose = purpose
         self.title = title
         self.shortSummary = shortSummary
+        self.aiThoughtSummary = aiThoughtSummary?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.usefulSnippets = usefulSnippets
         self.tags = tags
         self.structuredData = structuredData

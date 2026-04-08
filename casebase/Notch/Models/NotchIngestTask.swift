@@ -25,6 +25,7 @@ struct NotchIngestTask: Identifiable, Equatable {
     var title: String
     var status: NotchIngestTaskStatus
     var record: ImportRecord?
+    var thinkingText: String?
     var supplementDraft: String
     var clarificationAnswers: [String: String]
     var skippedClarificationQuestionIDs: [String]
@@ -40,6 +41,7 @@ struct NotchIngestTask: Identifiable, Equatable {
         title: String,
         status: NotchIngestTaskStatus = .queued,
         record: ImportRecord? = nil,
+        thinkingText: String? = nil,
         supplementDraft: String = "",
         clarificationAnswers: [String: String] = [:],
         skippedClarificationQuestionIDs: [String] = [],
@@ -54,6 +56,7 @@ struct NotchIngestTask: Identifiable, Equatable {
         self.title = title
         self.status = status
         self.record = record
+        self.thinkingText = thinkingText?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.supplementDraft = supplementDraft
         self.clarificationAnswers = clarificationAnswers
         self.skippedClarificationQuestionIDs = skippedClarificationQuestionIDs

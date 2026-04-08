@@ -24,11 +24,11 @@ actor CasebaseImportCoordinator: ImportCoordinator {
     }
 
     func importPayload(_ payload: ImportPayload, progress: ImportProgressHandler?) async throws -> ImportRecord {
-        progress?(.preparing)
+        progress?(ImportProgressUpdate(phase: .preparing))
         let storedAsset = try await assetVault.store(payload)
 
         if var existingRecord = try await knowledgeStore.findRecord(byAssetHash: storedAsset.assetHash) {
-            progress?(.storing)
+            progress?(ImportProgressUpdate(phase: .storing))
             existingRecord.assetPath = storedAsset.assetPath
             existingRecord.fileName = storedAsset.fileName
             existingRecord.mimeType = storedAsset.mimeType
@@ -39,9 +39,12 @@ actor CasebaseImportCoordinator: ImportCoordinator {
         }
 
         let canonicalPayload = await canonicalPayload(for: storedAsset)
-        progress?(.recognizing)
+        progress?(ImportProgressUpdate(phase: .recognizing))
         let normalizedContent = try await extractor.normalize(canonicalPayload)
         let analysisContext = try await analyze(storedAsset: storedAsset, content: normalizedContent)
+        if let thoughtSummary = analysisContext.result.aiThoughtSummary, !thoughtSummary.isEmpty {
+            progress?(ImportProgressUpdate(phase: .recognizing, thoughtText: thoughtSummary))
+        }
         let embedding = try await aiClient.embed(text: analysisContext.result.searchText)
         let clarificationRequest = clarificationRequest(
             from: analysisContext.result,
@@ -74,7 +77,7 @@ actor CasebaseImportCoordinator: ImportCoordinator {
             parseStatus: analysisContext.parseStatus
         )
 
-        progress?(.storing)
+        progress?(ImportProgressUpdate(phase: .storing))
         try await knowledgeStore.save(record)
         return record
     }
@@ -85,7 +88,7 @@ actor CasebaseImportCoordinator: ImportCoordinator {
         skippedQuestionTitles: [String],
         progress: ImportProgressHandler?
     ) async throws -> ImportRecord {
-        progress?(.preparing)
+        progress?(ImportProgressUpdate(phase: .preparing))
         guard var existingRecord = try await knowledgeStore.fetchRecord(id: id) else {
             throw CasebaseError.recordNotFound(id)
         }
@@ -101,7 +104,7 @@ actor CasebaseImportCoordinator: ImportCoordinator {
         )
 
         let canonicalPayload = await canonicalPayload(for: storedAsset)
-        progress?(.recognizing)
+        progress?(ImportProgressUpdate(phase: .recognizing))
         let normalizedContent = try await extractor.normalize(canonicalPayload)
         let resolvedAnswers = clarificationAnswers.filter { !$0.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         let resolvedSkippedQuestionTitles = skippedQuestionTitles
@@ -129,6 +132,9 @@ actor CasebaseImportCoordinator: ImportCoordinator {
             storedAsset: storedAsset,
             content: augmentedContent
         )
+        if let thoughtSummary = analysisContext.result.aiThoughtSummary, !thoughtSummary.isEmpty {
+            progress?(ImportProgressUpdate(phase: .recognizing, thoughtText: thoughtSummary))
+        }
         let embedding = try await aiClient.embed(text: analysisContext.result.searchText)
         let clarificationRequest = clarificationRequest(
             from: analysisContext.result,
@@ -137,7 +143,7 @@ actor CasebaseImportCoordinator: ImportCoordinator {
             roundCount: nextRoundCount
         )
 
-        progress?(.storing)
+        progress?(ImportProgressUpdate(phase: .storing))
         existingRecord.contentType = analysisContext.result.contentType
         existingRecord.scene = analysisContext.result.scene
         existingRecord.purpose = analysisContext.result.purpose
@@ -269,6 +275,7 @@ actor CasebaseImportCoordinator: ImportCoordinator {
             purpose: purpose,
             title: title,
             shortSummary: summary,
+            aiThoughtSummary: nil,
             usefulSnippets: snippets,
             tags: tags,
             structuredData: structuredData,

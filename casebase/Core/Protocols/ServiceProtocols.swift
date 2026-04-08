@@ -1,7 +1,7 @@
 import Foundation
 
 // Cross-module contracts owned by the Core layer. Feature modules should depend on these only.
-typealias ImportProgressHandler = @Sendable (ImportProcessingPhase) -> Void
+typealias ImportProgressHandler = @Sendable (ImportProgressUpdate) -> Void
 
 protocol Extractor {
     var supportedSourceKinds: Set<ImportSourceKind> { get }

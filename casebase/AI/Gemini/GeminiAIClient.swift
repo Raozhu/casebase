@@ -15,6 +15,7 @@ private struct GeminiResponseContent: Decodable {
 
 private struct GeminiResponsePart: Decodable {
     let text: String?
+    let thought: Bool?
 }
 
 private struct GeminiEmbedContentResponse: Decodable {
@@ -87,6 +88,9 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
                 "generationConfig": [
                     "responseMimeType": "application/json",
                     "responseJsonSchema": GeminiAnalysisPromptBuilder.responseJSONSchema,
+                    "thinkingConfig": [
+                        "includeThoughts": true,
+                    ],
                 ],
             ]
 
@@ -96,8 +100,9 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
                 decode: GeminiGenerateContentResponse.self
             )
             let text = try extractPrimaryText(from: response)
+            let thoughtSummary = extractThoughtSummary(from: response)
             let payload = try decodeJSONPayload(GeminiAnalysisPayload.self, from: text)
-            return try validate(payload: payload)
+            return try validate(payload: payload, thoughtSummary: thoughtSummary)
         } catch let error as CasebaseError {
             throw error
         } catch let error as GeminiTransportError {
@@ -244,7 +249,10 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
         }
     }
 
-    private func validate(payload: GeminiAnalysisPayload) throws -> AnalysisResult {
+    private func validate(
+        payload: GeminiAnalysisPayload,
+        thoughtSummary: String?
+    ) throws -> AnalysisResult {
         let contentType = payload.contentType.trimmingCharacters(in: .whitespacesAndNewlines)
         let scene = payload.scene.trimmingCharacters(in: .whitespacesAndNewlines)
         let purpose = payload.purpose.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -279,6 +287,7 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
             purpose: purpose,
             title: title,
             shortSummary: shortSummary,
+            aiThoughtSummary: thoughtSummary,
             usefulSnippets: Array(usefulSnippets.prefix(12)),
             tags: Array(tags.prefix(12)),
             structuredData: payload.structuredData,
@@ -329,6 +338,7 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
         let text = response.candidates?
             .compactMap(\.content?.parts)
             .flatMap { $0 }
+            .filter { $0.thought != true }
             .compactMap(\.text)
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -337,6 +347,21 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
             throw CasebaseError.emptyResponse
         }
         return text
+    }
+
+    private func extractThoughtSummary(from response: GeminiGenerateContentResponse) -> String? {
+        let thoughtSummary = response.candidates?
+            .compactMap(\.content?.parts)
+            .flatMap { $0 }
+            .filter { $0.thought == true }
+            .compactMap(\.text)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let thoughtSummary, !thoughtSummary.isEmpty else {
+            return nil
+        }
+        return thoughtSummary
     }
 
     private func decodeJSONPayload<T: Decodable>(_ type: T.Type, from text: String) throws -> T {

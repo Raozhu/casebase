@@ -5,11 +5,11 @@ final class MockImportCoordinator: ImportCoordinator {
     private var records: [UUID: ImportRecord] = [:]
 
     func importPayload(_ payload: ImportPayload, progress: ImportProgressHandler?) async throws -> ImportRecord {
-        progress?(.preparing)
+        progress?(ImportProgressUpdate(phase: .preparing))
         try await Task.sleep(nanoseconds: 220_000_000)
-        progress?(.recognizing)
+        progress?(ImportProgressUpdate(phase: .recognizing, thoughtText: mockThoughtSummary))
         try await Task.sleep(nanoseconds: 420_000_000)
-        progress?(.storing)
+        progress?(ImportProgressUpdate(phase: .storing))
         try await Task.sleep(nanoseconds: 220_000_000)
 
         let record = buildRecord(for: payload)
@@ -23,9 +23,9 @@ final class MockImportCoordinator: ImportCoordinator {
         skippedQuestionTitles: [String],
         progress: ImportProgressHandler?
     ) async throws -> ImportRecord {
-        progress?(.preparing)
+        progress?(ImportProgressUpdate(phase: .preparing))
         try await Task.sleep(nanoseconds: 180_000_000)
-        progress?(.recognizing)
+        progress?(ImportProgressUpdate(phase: .recognizing, thoughtText: mockThoughtSummary))
         try await Task.sleep(nanoseconds: 320_000_000)
 
         guard var record = records[id] else {
@@ -64,7 +64,7 @@ final class MockImportCoordinator: ImportCoordinator {
             record.needsReview = false
         }
 
-        progress?(.storing)
+        progress?(ImportProgressUpdate(phase: .storing))
         try await Task.sleep(nanoseconds: 180_000_000)
         record.updatedAt = Date()
         record.shortSummary += reanalyzedSuffix
@@ -188,6 +188,12 @@ final class MockImportCoordinator: ImportCoordinator {
             updatedAt: now,
             importCount: 1
         )
+    }
+
+    private var mockThoughtSummary: String {
+        CasebasePromptCatalog.language == .simplifiedChinese
+            ? "正在梳理内容里的关键信息与用途"
+            : "Tracing the key facts and intended use"
     }
 }
 

@@ -140,3 +140,13 @@ enum ImportProcessingPhase: String, Codable, Hashable {
     case recognizing
     case storing
 }
+
+struct ImportProgressUpdate: Codable, Hashable, Sendable {
+    let phase: ImportProcessingPhase
+    let thoughtText: String?
+
+    init(phase: ImportProcessingPhase, thoughtText: String? = nil) {
+        self.phase = phase
+        self.thoughtText = thoughtText?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
