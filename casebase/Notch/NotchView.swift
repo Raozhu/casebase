@@ -82,6 +82,19 @@ struct NotchHoverView: View {
             perform: viewModel.handleDrop(providers:)
         )
         .onHover { isHovering in
+            if !isHovering {
+                self.isHovering = false
+                viewModel.restoreHoverAfterMouseExit()
+                guard !viewModel.shouldRemainExpanded || viewModel.isDismissed else { return }
+                viewModel.collapse()
+                return
+            }
+
+            guard !viewModel.suppressHoverUntilMouseExit else {
+                self.isHovering = true
+                return
+            }
+
             guard !viewModel.shouldRemainExpanded || viewModel.isDismissed else {
                 self.isHovering = isHovering
                 return
@@ -109,6 +122,12 @@ struct NotchHoverView: View {
         guard !viewModel.shouldRemainExpanded || viewModel.isDismissed else { return }
         let currentlyInside = viewModel.hoverRect.contains(NSEvent.mouseLocation)
         isHovering = currentlyInside
+
+        if !currentlyInside {
+            viewModel.restoreHoverAfterMouseExit()
+        }
+
+        guard !viewModel.suppressHoverUntilMouseExit else { return }
 
         if currentlyInside {
             viewModel.expand()

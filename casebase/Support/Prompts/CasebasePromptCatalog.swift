@@ -330,10 +330,94 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var settingsShortcutsLabel: String {
+            switch language {
+            case .simplifiedChinese: return "快捷键"
+            case .english: return "Shortcuts"
+            }
+        }
+
+        var settingsSelectionShortcutLabel: String {
+            switch language {
+            case .simplifiedChinese: return "文字入库"
+            case .english: return "Text Capture"
+            }
+        }
+
+        var settingsScreenshotShortcutLabel: String {
+            switch language {
+            case .simplifiedChinese: return "截图入库"
+            case .english: return "Screenshot Capture"
+            }
+        }
+
+        var settingsShortcutRecordButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "录制"
+            case .english: return "Record"
+            }
+        }
+
+        var settingsShortcutResetButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "恢复默认"
+            case .english: return "Reset"
+            }
+        }
+
+        var settingsShortcutRecordingHint: String {
+            switch language {
+            case .simplifiedChinese: return "点击录制后直接按下新的快捷键，支持组合键。按 Esc 取消。"
+            case .english: return "Click Record and press a new shortcut. Key combinations are supported. Press Escape to cancel."
+            }
+        }
+
+        var settingsShortcutRecordingState: String {
+            switch language {
+            case .simplifiedChinese: return "等待按键…"
+            case .english: return "Waiting for shortcut..."
+            }
+        }
+
+        var settingsShortcutDuplicateMessage: String {
+            switch language {
+            case .simplifiedChinese: return "两个功能不能使用同一个快捷键。"
+            case .english: return "These two actions cannot use the same shortcut."
+            }
+        }
+
         var settingsClearDataButtonTitle: String {
             switch language {
             case .simplifiedChinese: return "清空已存储数据"
             case .english: return "Clear stored data"
+            }
+        }
+
+        var settingsRestartButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "重启 casebase"
+            case .english: return "Restart casebase"
+            }
+        }
+
+        var settingsClearActionTitle: String {
+            switch language {
+            case .simplifiedChinese: return "清空"
+            case .english: return "Clear"
+            }
+        }
+
+        var settingsRestartActionTitle: String {
+            switch language {
+            case .simplifiedChinese: return "重启"
+            case .english: return "Restart"
+            }
+        }
+
+        var settingsQuitActionTitle: String {
+            switch language {
+            case .simplifiedChinese: return "退出"
+            case .english: return "Quit"
             }
         }
 
@@ -1826,6 +1910,20 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var selectionCaptureInputMonitoringPermissionRequired: String {
+            switch language {
+            case .simplifiedChinese: return "F1 读取选中文本还需要授予输入监听权限，请在系统设置的“隐私与安全性 > 输入监听”中允许 casebase。"
+            case .english: return "Using F1 to read selected text also requires Input Monitoring permission. Allow casebase in Privacy & Security > Input Monitoring."
+            }
+        }
+
+        var selectionCaptureHotKeyRegistrationFailed: String {
+            switch language {
+            case .simplifiedChinese: return "选中文本快捷键注册失败，可能被系统或其他应用占用。"
+            case .english: return "The selected-text shortcut could not be registered. It may already be in use by macOS or another app."
+            }
+        }
+
         var selectionCaptureCopyFailed: String {
             switch language {
             case .simplifiedChinese: return "没有成功复制到当前选中的文本。"
@@ -1844,6 +1942,13 @@ enum CasebasePromptCatalog {
             switch language {
             case .simplifiedChinese: return "需要授予屏幕录制权限后，才能通过快捷键截图。"
             case .english: return "Screen Recording permission is required before the screenshot shortcut can run."
+            }
+        }
+
+        var screenCaptureHotKeyRegistrationFailed: String {
+            switch language {
+            case .simplifiedChinese: return "截图快捷键注册失败，可能被系统或其他应用占用。"
+            case .english: return "The screenshot shortcut could not be registered. It may already be in use by macOS or another app."
             }
         }
 

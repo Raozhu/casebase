@@ -1,18 +1,53 @@
+import Carbon.HIToolbox
 import SwiftUI
 
 struct NotchSettingsView: View {
     @ObservedObject private var languageController = CasebaseLanguageController.shared
+    @ObservedObject private var hotKeyStore = CasebaseHotKeyStore.shared
+    @State private var recordingAction: CasebaseHotKeyAction?
+    @State private var shortcutErrorMessage: String?
+    @State private var keyMonitor: Any?
+    let allowsLiveShortcutRecording: Bool
+    let isMeasuring: Bool
     let onClose: () -> Void
     let showsSelectionCaptureAccess: Bool
     let onOpenSelectionCaptureAccess: () -> Void
     let showsScreenRecordingAccess: Bool
     let onOpenScreenRecordingAccess: () -> Void
     let onOpenClearData: () -> Void
+    let onRestart: () -> Void
     let onQuit: () -> Void
     let canClearData: Bool
 
+    init(
+        allowsLiveShortcutRecording: Bool = true,
+        isMeasuring: Bool = false,
+        onClose: @escaping () -> Void,
+        showsSelectionCaptureAccess: Bool,
+        onOpenSelectionCaptureAccess: @escaping () -> Void,
+        showsScreenRecordingAccess: Bool,
+        onOpenScreenRecordingAccess: @escaping () -> Void,
+        onOpenClearData: @escaping () -> Void,
+        onRestart: @escaping () -> Void,
+        onQuit: @escaping () -> Void,
+        canClearData: Bool
+    ) {
+        self.allowsLiveShortcutRecording = allowsLiveShortcutRecording
+        self.isMeasuring = isMeasuring
+        self.onClose = onClose
+        self.showsSelectionCaptureAccess = showsSelectionCaptureAccess
+        self.onOpenSelectionCaptureAccess = onOpenSelectionCaptureAccess
+        self.showsScreenRecordingAccess = showsScreenRecordingAccess
+        self.onOpenScreenRecordingAccess = onOpenScreenRecordingAccess
+        self.onOpenClearData = onOpenClearData
+        self.onRestart = onRestart
+        self.onQuit = onQuit
+        self.canClearData = canClearData
+    }
+
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        let content = VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 Text(CasebasePromptCatalog.ui.settingsTitle)
                     .font(.system(size: 18, weight: .semibold))
@@ -20,55 +55,237 @@ struct NotchSettingsView: View {
 
                 Spacer()
 
-                Button(action: onClose) {
-                    Text(CasebasePromptCatalog.ui.settingsCloseButtonTitle)
-                }
-                .buttonStyle(NotchActionButtonStyle(prominent: false))
+                NotchBackIconButton(action: onClose)
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                NotchLanguagePickerView(
-                    selectedLanguage: languageController.language,
-                    onSelectLanguage: languageController.setLanguage
+            shortcutsSection
+
+            if !isMeasuring {
+                Spacer(minLength: 0)
+            }
+
+            bottomActionArea
+        }
+        .onAppear {
+            guard allowsLiveShortcutRecording else { return }
+            updateMonitorState()
+        }
+        .onChange(of: recordingAction) { _, _ in
+            guard allowsLiveShortcutRecording else { return }
+            updateMonitorState()
+        }
+        .onDisappear {
+            guard allowsLiveShortcutRecording else { return }
+            removeKeyMonitor()
+        }
+
+        if isMeasuring {
+            content
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        } else {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var shortcutsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(CasebasePromptCatalog.ui.settingsShortcutsLabel)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.white.opacity(0.46))
+
+            VStack(alignment: .leading, spacing: 12) {
+                HotKeyRecorderRow(
+                    title: CasebasePromptCatalog.ui.settingsSelectionShortcutLabel,
+                    shortcut: hotKeyStore.selectionCaptureShortcut,
+                    isRecording: recordingAction == .selectionCapture,
+                    onStartRecording: { beginRecording(.selectionCapture) },
+                    onReset: {
+                        hotKeyStore.resetShortcut(for: .selectionCapture)
+                        shortcutErrorMessage = nil
+                    }
+                )
+
+                HotKeyRecorderRow(
+                    title: CasebasePromptCatalog.ui.settingsScreenshotShortcutLabel,
+                    shortcut: hotKeyStore.screenshotCaptureShortcut,
+                    isRecording: recordingAction == .screenshotCapture,
+                    onStartRecording: { beginRecording(.screenshotCapture) },
+                    onReset: {
+                        hotKeyStore.resetShortcut(for: .screenshotCapture)
+                        shortcutErrorMessage = nil
+                    }
                 )
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            if showsSelectionCaptureAccess {
-                VStack(alignment: .leading, spacing: 10) {
-                    Button(action: onOpenSelectionCaptureAccess) {
-                        Text(CasebasePromptCatalog.ui.settingsAccessibilityButtonTitle)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(NotchActionButtonStyle(prominent: false))
-                }
+            if let shortcutErrorMessage {
+                Text(shortcutErrorMessage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.red.opacity(0.9))
             }
-
-            if showsScreenRecordingAccess {
-                VStack(alignment: .leading, spacing: 10) {
-                    Button(action: onOpenScreenRecordingAccess) {
-                        Text(CasebasePromptCatalog.ui.settingsScreenRecordingButtonTitle)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(NotchActionButtonStyle(prominent: false))
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Button(action: onOpenClearData) {
-                    Text(CasebasePromptCatalog.ui.settingsClearDataButtonTitle)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(NotchActionButtonStyle(prominent: false))
-                .disabled(!canClearData)
-            }
-
-            Button(action: onQuit) {
-                Text(CasebasePromptCatalog.ui.settingsQuitButtonTitle)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(NotchActionButtonStyle(prominent: true))
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private var footerActionRow: some View {
+        HStack(spacing: 10) {
+            NotchLanguagePickerView(
+                selectedLanguage: languageController.language,
+                onSelectLanguage: languageController.setLanguage
+            )
+
+            Spacer(minLength: 0)
+
+            LibraryActionTileButton(
+                systemImage: "trash",
+                title: CasebasePromptCatalog.ui.settingsClearActionTitle,
+                action: onOpenClearData
+            )
+            .frame(width: 88)
+            .disabled(!canClearData)
+
+            LibraryActionTileButton(
+                systemImage: "arrow.clockwise",
+                title: CasebasePromptCatalog.ui.settingsRestartActionTitle,
+                action: onRestart
+            )
+            .frame(width: 88)
+
+            LibraryActionTileButton(
+                systemImage: "power",
+                title: CasebasePromptCatalog.ui.settingsQuitActionTitle,
+                isDestructive: true,
+                action: onQuit
+            )
+            .frame(width: 88)
+        }
+    }
+
+    private var bottomActionArea: some View {
+        footerActionRow
+    }
+
+    private func beginRecording(_ action: CasebaseHotKeyAction) {
+        shortcutErrorMessage = nil
+        recordingAction = action
+    }
+
+    private func updateMonitorState() {
+        if recordingAction == nil {
+            removeKeyMonitor()
+            return
+        }
+
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard let action = recordingAction else { return event }
+
+            if event.keyCode == UInt16(kVK_Escape) {
+                recordingAction = nil
+                shortcutErrorMessage = nil
+                return nil
+            }
+
+            guard let shortcut = CasebaseHotKeyDescriptor(event: event) else {
+                return nil
+            }
+
+            guard hotKeyStore.setShortcut(shortcut, for: action) else {
+                shortcutErrorMessage = CasebasePromptCatalog.ui.settingsShortcutDuplicateMessage
+                return nil
+            }
+
+            shortcutErrorMessage = nil
+            recordingAction = nil
+            return nil
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+    }
+
+    static func measuredContentHeight(
+        showsSelectionCaptureAccess: Bool,
+        showsScreenRecordingAccess: Bool,
+        canClearData: Bool
+    ) -> CGFloat {
+        let contentWidth: CGFloat = 480
+        let rootView = NotchSettingsView(
+            allowsLiveShortcutRecording: false,
+            isMeasuring: true,
+            onClose: {},
+            showsSelectionCaptureAccess: showsSelectionCaptureAccess,
+            onOpenSelectionCaptureAccess: {},
+            showsScreenRecordingAccess: showsScreenRecordingAccess,
+            onOpenScreenRecordingAccess: {},
+            onOpenClearData: {},
+            onRestart: {},
+            onQuit: {},
+            canClearData: canClearData
+        )
+        .frame(width: contentWidth, alignment: .topLeading)
         .fixedSize(horizontal: false, vertical: true)
+
+        let hostingView = NSHostingView(rootView: rootView)
+        return ceil(hostingView.fittingSize.height + 40)
+    }
+}
+
+private struct HotKeyRecorderRow: View {
+    let title: String
+    let shortcut: CasebaseHotKeyDescriptor
+    let isRecording: Bool
+    let onStartRecording: () -> Void
+    let onReset: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.white.opacity(0.78))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+
+            Spacer(minLength: 16)
+
+            HStack(spacing: 6) {
+                Button(action: onStartRecording) {
+                    Text(isRecording ? CasebasePromptCatalog.ui.settingsShortcutRecordingState : shortcut.displayString)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(isRecording ? .black : .white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(isRecording ? Color.white : Color.white.opacity(0.06))
+                        )
+                        .frame(width: 96)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onReset) {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(NotchShortcutResetIconButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct NotchShortcutResetIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.white.opacity(configuration.isPressed ? 0.96 : 0.56))
+            .frame(width: 24, height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.12 : 0.04))
+            )
     }
 }

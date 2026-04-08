@@ -11,10 +11,12 @@ struct NotchErrorView: View {
     let onRetry: () -> Void
     let onDismiss: () -> Void
     let copyText: String
+    let isMeasuring: Bool
     @State private var isCopyHovered = false
 
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let content = VStack(alignment: .leading, spacing: 14) {
             header
 
             VStack(alignment: .leading, spacing: 10) {
@@ -42,6 +44,10 @@ struct NotchErrorView: View {
                     .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
             }
 
+            if !isMeasuring {
+                Spacer(minLength: 0)
+            }
+
             HStack(spacing: 10) {
                 Button(action: onRetry) {
                     Text(CasebasePromptCatalog.ui.retryButtonTitle)
@@ -54,7 +60,14 @@ struct NotchErrorView: View {
                 .buttonStyle(NotchActionButtonStyle(prominent: false))
             }
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+
+        if isMeasuring {
+            content
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        } else {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
     }
 
     private var header: some View {

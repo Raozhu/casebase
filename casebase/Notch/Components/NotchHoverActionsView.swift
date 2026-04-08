@@ -7,9 +7,11 @@ struct NotchHoverActionsView: View {
     let onAuthorizeSelectionCapture: () -> Void
     let showsScreenRecordingPrompt: Bool
     let onAuthorizeScreenRecording: () -> Void
+    let isMeasuring: Bool
 
+    @ViewBuilder
     var body: some View {
-        VStack(spacing: 20) {
+        let content = VStack(spacing: 20) {
             if showsSelectionCapturePrompt {
                 permissionPrompt(
                     title: CasebasePromptCatalog.ui.hoverActionAccessibilityTitle,
@@ -54,7 +56,14 @@ struct NotchHoverActionsView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.white.opacity(0.56))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+
+        if isMeasuring {
+            content
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        } else {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
     }
 
     private func permissionPrompt(

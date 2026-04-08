@@ -58,6 +58,8 @@ struct GlobalSelectionCaptureContext: Sendable {
 
 enum GlobalSelectionCaptureError: LocalizedError {
     case accessibilityPermissionRequired
+    case inputMonitoringPermissionRequired
+    case hotKeyRegistrationFailed
     case copyFailed
     case noTextFound
 
@@ -65,6 +67,10 @@ enum GlobalSelectionCaptureError: LocalizedError {
         switch self {
         case .accessibilityPermissionRequired:
             return CasebasePromptCatalog.errors.selectionCapturePermissionRequired
+        case .inputMonitoringPermissionRequired:
+            return CasebasePromptCatalog.errors.selectionCaptureInputMonitoringPermissionRequired
+        case .hotKeyRegistrationFailed:
+            return CasebasePromptCatalog.errors.selectionCaptureHotKeyRegistrationFailed
         case .copyFailed:
             return CasebasePromptCatalog.errors.selectionCaptureCopyFailed
         case .noTextFound:

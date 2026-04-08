@@ -27,14 +27,5 @@ struct NotchLanguagePickerView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(4)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Color.white.opacity(0.04))
-        )
-        .overlay {
-            Capsule(style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-        }
     }
 }

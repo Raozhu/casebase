@@ -11,17 +11,29 @@ struct NotchCompositeView: View {
                 panelShape
                     .fill(Color.white.opacity(0.02))
             )
-            .overlay(
-                measuredContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            )
+            .overlay(alignment: .topLeading) {
+                visibleContent
+            }
             .clipShape(panelShape)
             .padding(.top, 2)
             .padding(.horizontal, 2)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private var measuredContent: some View {
+    private var visibleContent: some View {
+        panelContent(forMeasurement: false)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(alignment: .topLeading) {
+                if viewModel.surfaceState.usesAdaptiveExpandedHeight {
+                    panelContent(forMeasurement: true)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .hidden()
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+
+    private func panelContent(forMeasurement: Bool) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Spacer()
@@ -30,26 +42,29 @@ struct NotchCompositeView: View {
                 }
             }
 
-            content
+            content(forMeasurement: forMeasurement)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .padding(20)
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .preference(key: NotchContentHeightPreferenceKey.self, value: proxy.size.height)
+        .background {
+            if forMeasurement {
+                GeometryReader { proxy in
+                    Color.clear
+                        .preference(key: NotchContentHeightPreferenceKey.self, value: proxy.size.height)
+                }
             }
-        )
+        }
         .onPreferenceChange(NotchContentHeightPreferenceKey.self) { height in
+            guard forMeasurement else { return }
             viewModel.updateMeasuredExpandedContentHeight(height, for: viewModel.surfaceState)
         }
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(forMeasurement: Bool) -> some View {
         switch viewModel.surfaceState {
         case .idle:
-            NotchIdleView()
+            EmptyView()
         case .hoverActions:
             NotchHoverActionsView(
                 onOpenLibrary: viewModel.openLibrary,
@@ -57,37 +72,46 @@ struct NotchCompositeView: View {
                 showsSelectionCapturePrompt: !viewModel.selectionCaptureAuthorized,
                 onAuthorizeSelectionCapture: viewModel.openSelectionCaptureAccessibilitySettings,
                 showsScreenRecordingPrompt: !viewModel.screenshotCaptureAuthorized,
-                onAuthorizeScreenRecording: viewModel.openScreenRecordingSettings
+                onAuthorizeScreenRecording: viewModel.openScreenRecordingSettings,
+                isMeasuring: forMeasurement
             )
         case .library:
-            NotchLibraryView(viewModel: viewModel)
+            NotchLibraryView(viewModel: viewModel, isMeasuring: forMeasurement)
         case .libraryDetail:
-            NotchLibraryDetailView(viewModel: viewModel)
+            NotchLibraryDetailView(viewModel: viewModel, isMeasuring: forMeasurement)
         case .settings:
             NotchSettingsView(
+                allowsLiveShortcutRecording: !forMeasurement,
+                isMeasuring: forMeasurement,
                 onClose: viewModel.closeSettings,
                 showsSelectionCaptureAccess: !viewModel.selectionCaptureAuthorized,
                 onOpenSelectionCaptureAccess: viewModel.openSelectionCaptureAccessibilitySettings,
                 showsScreenRecordingAccess: !viewModel.screenshotCaptureAuthorized,
                 onOpenScreenRecordingAccess: viewModel.openScreenRecordingSettings,
                 onOpenClearData: viewModel.openDataResetConfirmation,
+                onRestart: viewModel.restartApplication,
                 onQuit: viewModel.quitApplication,
                 canClearData: viewModel.canOpenDataResetConfirmation
             )
         case .settingsDataResetConfirmation:
             NotchSettingsDataResetConfirmationView(
                 isClearing: viewModel.isClearingStoredData,
+                isMeasuring: forMeasurement,
                 onBack: viewModel.closeDataResetConfirmation,
                 onConfirm: viewModel.confirmDataReset
             )
         case .dropTarget:
-            NotchDropZoneView(noticeMessage: viewModel.noticeMessage)
+            NotchDropZoneView(
+                noticeMessage: viewModel.noticeMessage,
+                showsAnimation: !forMeasurement,
+                isMeasuring: forMeasurement
+            )
         case .intakeFeedback:
             NotchDigestingFeedbackView(
                 message: viewModel.intakeFeedbackMessage ?? CasebasePromptCatalog.ui.intakeDigestingFeedback
             )
         case .taskPanel:
-            NotchTaskPanelView(viewModel: viewModel)
+            NotchTaskPanelView(viewModel: viewModel, isMeasuring: forMeasurement)
         case .ingesting:
             NotchImportProgressView(
                 title: CasebasePromptCatalog.ui.ingestingTitle,
@@ -114,7 +138,8 @@ struct NotchCompositeView: View {
                 onNext: viewModel.selectNextFailedTask,
                 onRetry: viewModel.retryCurrentError,
                 onDismiss: viewModel.dismissCurrentError,
-                copyText: viewModel.currentErrorCopyText
+                copyText: viewModel.currentErrorCopyText,
+                isMeasuring: forMeasurement
             )
         }
     }

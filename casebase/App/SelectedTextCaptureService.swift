@@ -5,29 +5,32 @@ import CoreGraphics
 import Foundation
 
 final class SelectedTextCaptureService {
+    func hasAccessibilityPermission() -> Bool {
+        AXIsProcessTrusted()
+    }
+
     func captureCurrentSelection() async throws -> GlobalSelectionCaptureContext {
         guard ensureAccessibilityPermission() else {
+            CasebaseDebugLogger.log("selection capture aborted: accessibility permission missing")
             throw GlobalSelectionCaptureError.accessibilityPermissionRequired
         }
 
         let pasteboard = NSPasteboard.general
         let snapshot = PasteboardSnapshot.capture(from: pasteboard)
-        let initialChangeCount = pasteboard.changeCount
         let frontmostApplication = NSWorkspace.shared.frontmostApplication
         let pid = frontmostApplication?.processIdentifier
         let accessibilityContext = pid.map(accessibilitySnapshot(for:)) ?? AccessibilitySnapshot.empty
+        CasebaseDebugLogger.log("selection capture started: app=\(frontmostApplication?.localizedName ?? "nil") axTextChars=\(accessibilityContext.selectedText?.count ?? 0)")
 
-        try sendCopyShortcut()
-
-        let clipboardText = try await waitForClipboardText(
-            on: pasteboard,
-            initialChangeCount: initialChangeCount
-        )
+        let clipboardText = try await captureClipboardText(from: pasteboard)
         snapshot.restore(to: pasteboard)
+        CasebaseDebugLogger.log("selection capture clipboard result: chars=\(clipboardText?.count ?? 0)")
 
-        let text = normalizeCapturedText(clipboardText ?? accessibilityContext.selectedText)
+        let clipboardSelection = normalizeCapturedText(clipboardText)
+        let accessibilitySelection = normalizeCapturedText(accessibilityContext.selectedText)
+        let text = !clipboardSelection.isEmpty ? clipboardSelection : accessibilitySelection
         guard !text.isEmpty else {
-            throw clipboardText == nil ? GlobalSelectionCaptureError.copyFailed : GlobalSelectionCaptureError.noTextFound
+            throw GlobalSelectionCaptureError.noTextFound
         }
 
         return GlobalSelectionCaptureContext(
@@ -38,6 +41,34 @@ final class SelectedTextCaptureService {
             sourceRect: accessibilityContext.selectedBounds,
             fallbackOriginPoint: accessibilityContext.fallbackOriginPoint
         )
+    }
+
+    private func captureClipboardText(from pasteboard: NSPasteboard) async throws -> String? {
+        // A bare function-key shortcut may still be settling in the source app when the hotkey fires.
+        // Give the app a beat, then retry once if copy does not land on the pasteboard.
+        for attempt in 0..<2 {
+            if attempt > 0 {
+                try await Task.sleep(nanoseconds: 160_000_000)
+            } else {
+                try await Task.sleep(nanoseconds: 120_000_000)
+            }
+
+            let initialChangeCount = pasteboard.changeCount
+            CasebaseDebugLogger.log("selection capture copy attempt \(attempt + 1): initialChangeCount=\(initialChangeCount)")
+            try sendCopyShortcut()
+
+            if let text = try await waitForClipboardText(
+                on: pasteboard,
+                initialChangeCount: initialChangeCount
+            ) {
+                CasebaseDebugLogger.log("selection capture copy attempt \(attempt + 1) succeeded")
+                return text
+            }
+
+            CasebaseDebugLogger.log("selection capture copy attempt \(attempt + 1) timed out")
+        }
+
+        return nil
     }
 
     private func ensureAccessibilityPermission() -> Bool {
@@ -64,7 +95,7 @@ final class SelectedTextCaptureService {
         on pasteboard: NSPasteboard,
         initialChangeCount: Int
     ) async throws -> String? {
-        for _ in 0..<12 {
+        for _ in 0..<20 {
             try await Task.sleep(nanoseconds: 50_000_000)
             if pasteboard.changeCount != initialChangeCount,
                let string = pasteboard.string(forType: .string)
@@ -203,29 +234,18 @@ final class SelectedTextCaptureService {
 }
 
 private struct PasteboardSnapshot {
-    let items: [[NSPasteboard.PasteboardType: Data]]
+    let plainText: String?
 
     static func capture(from pasteboard: NSPasteboard) -> PasteboardSnapshot {
-        let items = pasteboard.pasteboardItems?.map { item in
-            Dictionary(uniqueKeysWithValues: item.types.compactMap { type in
-                item.data(forType: type).map { (type, $0) }
-            })
-        } ?? []
-        return PasteboardSnapshot(items: items)
+        // Avoid enumerating arbitrary pasteboard item payloads here.
+        // Some third-party apps expose types that can crash inside the system pasteboard bridge.
+        PasteboardSnapshot(plainText: pasteboard.string(forType: .string))
     }
 
     func restore(to pasteboard: NSPasteboard) {
+        guard let plainText else { return }
         pasteboard.clearContents()
-        guard !items.isEmpty else { return }
-
-        let restoredItems = items.map { itemData -> NSPasteboardItem in
-            let item = NSPasteboardItem()
-            for (type, data) in itemData {
-                item.setData(data, forType: type)
-            }
-            return item
-        }
-        pasteboard.writeObjects(restoredItems)
+        pasteboard.setString(plainText, forType: .string)
     }
 }
 

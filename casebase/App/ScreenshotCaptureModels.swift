@@ -45,6 +45,7 @@ struct GlobalScreenshotCaptureContext: Sendable {
 
 enum GlobalScreenshotCaptureError: LocalizedError {
     case permissionRequired
+    case hotKeyRegistrationFailed
     case noActiveScreen
     case captureFailed
 
@@ -52,6 +53,8 @@ enum GlobalScreenshotCaptureError: LocalizedError {
         switch self {
         case .permissionRequired:
             return CasebasePromptCatalog.errors.screenCapturePermissionRequired
+        case .hotKeyRegistrationFailed:
+            return CasebasePromptCatalog.errors.screenCaptureHotKeyRegistrationFailed
         case .noActiveScreen:
             return CasebasePromptCatalog.errors.screenCaptureNoActiveScreen
         case .captureFailed:

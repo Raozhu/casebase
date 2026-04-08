@@ -5,11 +5,13 @@ import Foundation
 @MainActor
 final class GlobalScreenshotCaptureController {
     private let captureService: ScreenshotCaptureService
+    private let hotKeyStore: CasebaseHotKeyStore
     private let onCapture: @MainActor (GlobalScreenshotCaptureContext) -> Void
     private let onError: @MainActor (Error) -> Void
 
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
+    private var hotKeyObserver: NSObjectProtocol?
     private var overlayController: ScreenshotCaptureOverlayWindowController?
     private var pendingSourceContext: ScreenshotSourceContext?
     private let hotKeyID = EventHotKeyID(signature: OSType(0x63627373), id: 1)
@@ -20,9 +22,19 @@ final class GlobalScreenshotCaptureController {
         onError: @escaping @MainActor (Error) -> Void
     ) {
         self.captureService = captureService
+        hotKeyStore = .shared
         self.onCapture = onCapture
         self.onError = onError
         installHotKey()
+        hotKeyObserver = NotificationCenter.default.addObserver(
+            forName: CasebaseHotKeyStore.didChangeNotification,
+            object: hotKeyStore,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.registerHotKey()
+            }
+        }
     }
 
     deinit {
@@ -31,6 +43,9 @@ final class GlobalScreenshotCaptureController {
         }
         if let eventHandler {
             RemoveEventHandler(eventHandler)
+        }
+        if let hotKeyObserver {
+            NotificationCenter.default.removeObserver(hotKeyObserver)
         }
     }
 
@@ -49,22 +64,52 @@ final class GlobalScreenshotCaptureController {
             &eventHandler
         )
 
-        RegisterEventHotKey(
-            UInt32(kVK_F1),
-            UInt32(cmdKey),
+        registerHotKey()
+    }
+
+    private func registerHotKey() {
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
+        }
+
+        let shortcut = hotKeyStore.shortcut(for: .screenshotCapture)
+        CasebaseDebugLogger.log("screenshot hotkey registering: \(shortcut.displayString) keyCode=\(shortcut.keyCode) modifiers=\(shortcut.carbonModifiers)")
+        let status = RegisterEventHotKey(
+            shortcut.keyCode,
+            shortcut.carbonModifiers,
             hotKeyID,
             GetApplicationEventTarget(),
             0,
             &hotKeyRef
         )
+
+        guard status == noErr, hotKeyRef != nil else {
+            CasebaseDebugLogger.log("screenshot hotkey registration failed: status=\(status)")
+            onError(GlobalScreenshotCaptureError.hotKeyRegistrationFailed)
+            return
+        }
+
+        CasebaseDebugLogger.log("screenshot hotkey registration succeeded")
     }
 
-    fileprivate func handleHotKeyPressed() {
+    fileprivate func handleHotKeyPressed(for pressedHotKeyID: EventHotKeyID?) {
+        guard matchesRegisteredHotKey(pressedHotKeyID) else { return }
+        guard captureService.hasPermission() else {
+            CasebaseDebugLogger.log("screenshot hotkey ignored: screen recording permission missing")
+            return
+        }
+        CasebaseDebugLogger.log("screenshot hotkey pressed")
         if overlayController != nil {
             cancelCaptureSession()
             return
         }
         startCaptureSession()
+    }
+
+    private func matchesRegisteredHotKey(_ pressedHotKeyID: EventHotKeyID?) -> Bool {
+        guard let pressedHotKeyID else { return false }
+        return pressedHotKeyID.signature == hotKeyID.signature && pressedHotKeyID.id == hotKeyID.id
     }
 
     private func startCaptureSession() {
@@ -138,11 +183,28 @@ final class GlobalScreenshotCaptureController {
     }
 }
 
-private let screenshotHotKeyHandler: EventHandlerUPP = { _, _, userData in
+private let screenshotHotKeyHandler: EventHandlerUPP = { _, event, userData in
     guard let userData else { return noErr }
+    let pressedHotKeyID = event.flatMap(screenshotEventHotKeyID)
     let controller = Unmanaged<GlobalScreenshotCaptureController>.fromOpaque(userData).takeUnretainedValue()
     Task { @MainActor in
-        controller.handleHotKeyPressed()
+        controller.handleHotKeyPressed(for: pressedHotKeyID)
     }
     return noErr
+}
+
+private func screenshotEventHotKeyID(from event: EventRef) -> EventHotKeyID? {
+    var pressedHotKeyID = EventHotKeyID()
+    let status = GetEventParameter(
+        event,
+        EventParamName(kEventParamDirectObject),
+        EventParamType(typeEventHotKeyID),
+        nil,
+        MemoryLayout<EventHotKeyID>.size,
+        nil,
+        &pressedHotKeyID
+    )
+
+    guard status == noErr else { return nil }
+    return pressedHotKeyID
 }

@@ -30,10 +30,10 @@ extension CasebaseSurfaceState {
 
     var usesAdaptiveExpandedHeight: Bool {
         switch self {
-        case .hoverActions, .settings, .settingsDataResetConfirmation, .ingesting, .savedPreview, .answering, .answerReady, .error:
-            return true
-        case .idle, .library, .libraryDetail, .dropTarget, .intakeFeedback, .taskPanel:
+        case .idle:
             return false
+        case .hoverActions, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .answering, .answerReady, .error:
+            return true
         }
     }
 }

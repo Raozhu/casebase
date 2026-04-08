@@ -56,6 +56,7 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var isDismissed = false
     @Published private(set) var isClearingStoredData = false
     @Published private(set) var selectedFailedTaskID: UUID?
+    @Published private(set) var suppressHoverUntilMouseExit = false
 
     @Published private(set) var status: Status = .collapsed
     @Published var displayCutoutRect: CGRect
@@ -84,6 +85,20 @@ final class NotchViewModel: ObservableObject {
     private var finalSuccessTask: Task<Void, Never>?
     private var finalSuccessVisible = false
     private var measuredExpandedContentHeights: [CasebaseSurfaceState: CGFloat] = [:]
+    private static let chineseLibraryTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+    private static let englishLibraryTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     init(
         screenFrame: CGRect,
@@ -165,19 +180,19 @@ final class NotchViewModel: ObservableObject {
                 )
             )
         case .library:
-            return CGSize(width: 640, height: 560)
+            return CGSize(width: 520, height: adaptiveExpandedHeight(for: .library, minimum: 220))
         case .libraryDetail:
-            return CGSize(width: 640, height: 600)
+            return CGSize(width: 520, height: adaptiveExpandedHeight(for: .libraryDetail, minimum: 300))
         case .settings:
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: .settings, minimum: 320))
         case .settingsDataResetConfirmation:
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: .settingsDataResetConfirmation, minimum: 280))
         case .dropTarget:
-            return CGSize(width: 520, height: 220)
+            return CGSize(width: 520, height: adaptiveExpandedHeight(for: .dropTarget, minimum: 220))
         case .intakeFeedback:
-            return CGSize(width: 250, height: 92)
+            return CGSize(width: 250, height: adaptiveExpandedHeight(for: .intakeFeedback, minimum: 92))
         case .taskPanel:
-            return CGSize(width: 620, height: 560)
+            return CGSize(width: 620, height: adaptiveExpandedHeight(for: .taskPanel, minimum: 260))
         case .ingesting, .error:
             let minimumHeight: CGFloat = surfaceState == .error ? 220 : 220
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: surfaceState, minimum: minimumHeight))
@@ -415,10 +430,14 @@ final class NotchViewModel: ObservableObject {
     func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard !providers.isEmpty else { return false }
 
+        suppressHoverUntilMouseExit = true
         let joiningExistingQueue = unfinishedTaskCount > 0 || finalSuccessVisible
-        presentIntakeFeedback(message: joiningExistingQueue
-            ? CasebasePromptCatalog.ui.intakeQueuedFeedback
-            : CasebasePromptCatalog.ui.intakeDigestingFeedback)
+        presentIntakeFeedback(
+            message: joiningExistingQueue
+                ? CasebasePromptCatalog.ui.intakeQueuedFeedback
+                : CasebasePromptCatalog.ui.intakeDigestingFeedback,
+            expandsSurface: false
+        )
 
         Task { [weak self] in
             guard let self else { return }
@@ -430,6 +449,10 @@ final class NotchViewModel: ObservableObject {
             }
         }
         return true
+    }
+
+    func restoreHoverAfterMouseExit() {
+        suppressHoverUntilMouseExit = false
     }
 
     func ingestCapturedSelection(_ capture: GlobalSelectionCaptureContext) {
@@ -618,6 +641,14 @@ final class NotchViewModel: ObservableObject {
 
     func openSettings() {
         refreshShortcutPermissions()
+        measuredExpandedContentHeights[.settings] = max(
+            measuredExpandedContentHeights[.settings] ?? 0,
+            NotchSettingsView.measuredContentHeight(
+                showsSelectionCaptureAccess: !selectionCaptureAuthorized,
+                showsScreenRecordingAccess: !screenshotCaptureAuthorized,
+                canClearData: canOpenDataResetConfirmation
+            )
+        )
         guard surfaceState != .settings, surfaceState != .settingsDataResetConfirmation else { return }
         isDismissed = false
         restoredSurfaceStateBeforeSettings = surfaceState
@@ -761,6 +792,10 @@ final class NotchViewModel: ObservableObject {
 
     func openDataResetConfirmation() {
         guard canOpenDataResetConfirmation else { return }
+        measuredExpandedContentHeights[.settingsDataResetConfirmation] = max(
+            measuredExpandedContentHeights[.settingsDataResetConfirmation] ?? 0,
+            NotchSettingsDataResetConfirmationView.measuredContentHeight(isClearing: isClearingStoredData)
+        )
         isDismissed = false
         isPinnedExpanded = true
         surfaceState = .settingsDataResetConfirmation
@@ -801,6 +836,17 @@ final class NotchViewModel: ObservableObject {
 
     func quitApplication() {
         NSApp.terminate(nil)
+    }
+
+    func restartApplication() {
+        let bundleURL = Bundle.main.bundleURL
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.createsNewApplicationInstance = true
+
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: configuration) { _, _ in
+            NSApp.terminate(nil)
+        }
     }
 
     func openTaskPanel() {
@@ -1143,10 +1189,9 @@ final class NotchViewModel: ObservableObject {
     }
 
     func formattedLibraryTimestamp(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: CasebasePromptCatalog.language == .simplifiedChinese ? "zh_CN" : "en_US")
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
+        let formatter: DateFormatter = CasebasePromptCatalog.language == .simplifiedChinese
+            ? Self.chineseLibraryTimestampFormatter
+            : Self.englishLibraryTimestampFormatter
         return formatter.string(from: date)
     }
 
@@ -1531,23 +1576,31 @@ final class NotchViewModel: ObservableObject {
         CasebasePromptCatalog.language == .simplifiedChinese ? chinese : english
     }
 
-    private func presentIntakeFeedback(message: String) {
+    private func presentIntakeFeedback(message: String, expandsSurface: Bool = true) {
         intakeFeedbackTask?.cancel()
         errorMessage = nil
         noticeMessage = nil
         intakeFeedbackMessage = message
         isDropTargeted = false
-        isPinnedExpanded = false
-        isDismissed = false
-        surfaceState = .intakeFeedback
-        status = .expanded
         pulseFeedback()
+
+        if expandsSurface {
+            isPinnedExpanded = false
+            isDismissed = false
+            surfaceState = .intakeFeedback
+            status = .expanded
+        } else if surfaceState == .dropTarget || surfaceState == .intakeFeedback {
+            isPinnedExpanded = false
+            isDismissed = false
+            surfaceState = .idle
+            status = .collapsed
+        }
 
         intakeFeedbackTask = Task { @MainActor [weak self] in
             guard let self else { return }
             try? await Task.sleep(nanoseconds: self.intakeFeedbackDurationNs)
-            guard self.surfaceState == .intakeFeedback else { return }
             self.intakeFeedbackMessage = nil
+            guard expandsSurface, self.surfaceState == .intakeFeedback else { return }
             self.surfaceState = .idle
             self.status = .collapsed
         }

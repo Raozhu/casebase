@@ -102,6 +102,7 @@ private final class ScreenshotCaptureOverlayView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.acceptsMouseMovedEvents = true
+        updateCursor(for: convert(window?.mouseLocationOutsideOfEventStream ?? .zero, from: nil))
     }
 
     override func keyDown(with event: NSEvent) {
@@ -112,9 +113,14 @@ private final class ScreenshotCaptureOverlayView: NSView {
         super.keyDown(with: event)
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        updateCursor(for: convert(event.locationInWindow, from: nil))
+    }
+
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         didDragDuringInteraction = false
+        updateCursor(for: point)
 
         if let selectionRect, selectionRect.contains(point), event.clickCount >= 2 {
             onConfirm(globalRect(for: selectionRect))
@@ -152,12 +158,15 @@ private final class ScreenshotCaptureOverlayView: NSView {
         }
 
         needsDisplay = true
+        updateCursor(for: point)
     }
 
     override func mouseUp(with event: NSEvent) {
         defer {
             interaction = .none
             needsDisplay = true
+            let point = convert(event.locationInWindow, from: nil)
+            updateCursor(for: point)
         }
 
         if case .resizing = interaction, !didDragDuringInteraction {
@@ -287,5 +296,34 @@ private final class ScreenshotCaptureOverlayView: NSView {
         return points.map { point in
             CGRect(x: point.x - half, y: point.y - half, width: size, height: size)
         }
+    }
+
+    private func updateCursor(for point: CGPoint) {
+        cursor(for: point).set()
+    }
+
+    private func cursor(for point: CGPoint) -> NSCursor {
+        guard let selectionRect else {
+            return .crosshair
+        }
+
+        if selectionRect.contains(point) {
+            return .crosshair
+        }
+
+        let withinVerticalBand = point.y >= selectionRect.minY && point.y <= selectionRect.maxY
+        let withinHorizontalBand = point.x >= selectionRect.minX && point.x <= selectionRect.maxX
+
+        if withinVerticalBand && (point.x < selectionRect.minX || point.x > selectionRect.maxX) {
+            return .resizeLeftRight
+        }
+
+        if withinHorizontalBand && (point.y < selectionRect.minY || point.y > selectionRect.maxY) {
+            return .resizeUpDown
+        }
+
+        let horizontalDistance = min(abs(point.x - selectionRect.minX), abs(point.x - selectionRect.maxX))
+        let verticalDistance = min(abs(point.y - selectionRect.minY), abs(point.y - selectionRect.maxY))
+        return horizontalDistance <= verticalDistance ? .resizeLeftRight : .resizeUpDown
     }
 }

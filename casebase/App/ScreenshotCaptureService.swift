@@ -17,6 +17,10 @@ final class ScreenshotCaptureService {
         self.previewWriter = previewWriter
     }
 
+    func hasPermission() -> Bool {
+        CGPreflightScreenCaptureAccess()
+    }
+
     func ensurePermission() -> Bool {
         if CGPreflightScreenCaptureAccess() {
             return true

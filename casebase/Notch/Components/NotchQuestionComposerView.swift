@@ -49,3 +49,27 @@ struct NotchActionButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.72 : 1)
     }
 }
+
+struct NotchChromeIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Color.white.opacity(configuration.isPressed ? 0.96 : 0.74))
+            .frame(width: 30, height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.12 : 0.06))
+            )
+    }
+}
+
+struct NotchBackIconButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+        }
+        .buttonStyle(NotchChromeIconButtonStyle())
+    }
+}

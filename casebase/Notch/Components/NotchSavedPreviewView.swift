@@ -12,10 +12,7 @@ struct NotchSavedPreviewView: View {
 
                 Spacer(minLength: 0)
 
-                Button(action: viewModel.backFromSavedPreviewToTaskPanel) {
-                    Text(CasebasePromptCatalog.ui.settingsCloseButtonTitle)
-                }
-                .buttonStyle(NotchActionButtonStyle(prominent: false))
+                NotchBackIconButton(action: viewModel.backFromSavedPreviewToTaskPanel)
             }
 
             ScrollView(.vertical, showsIndicators: false) {

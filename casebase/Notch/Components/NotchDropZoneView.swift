@@ -2,11 +2,22 @@ import SwiftUI
 
 struct NotchDropZoneView: View {
     let noticeMessage: String?
+    let showsAnimation: Bool
+    let isMeasuring: Bool
     @State private var isFloating = false
 
+    init(noticeMessage: String?, showsAnimation: Bool = true, isMeasuring: Bool = false) {
+        self.noticeMessage = noticeMessage
+        self.showsAnimation = showsAnimation
+        self.isMeasuring = isMeasuring
+    }
+
+    @ViewBuilder
     var body: some View {
-        VStack(spacing: 12) {
-            Spacer(minLength: 0)
+        let content = VStack(spacing: 12) {
+            if !isMeasuring {
+                Spacer(minLength: 0)
+            }
 
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(
@@ -42,11 +53,21 @@ struct NotchDropZoneView: View {
                     .foregroundStyle(Color.white.opacity(0.56))
             }
 
-            Spacer(minLength: 0)
+            if !isMeasuring {
+                Spacer(minLength: 0)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
+            guard showsAnimation else { return }
             isFloating = true
+        }
+
+        if isMeasuring {
+            content
+                .frame(maxWidth: .infinity, alignment: .top)
+        } else {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 }
