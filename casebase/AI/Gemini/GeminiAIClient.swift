@@ -80,29 +80,28 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
         embeddingModel = GeminiRuntimeDefaults.resolvedEmbeddingModel(from: configuration.ai.embeddingModel)
     }
 
-    func analyze(content: NormalizedContent) async throws -> AnalysisResult {
+    func analyze(content: NormalizedContent, thoughtHandler: AIThoughtHandler?) async throws -> AnalysisResult {
         do {
             let contents = try GeminiContentEncoder.encodeAnalysisContents(content)
-            let requestBody: GeminiJSONObject = [
-                "contents": contents,
-                "generationConfig": [
-                    "responseMimeType": "application/json",
-                    "responseJsonSchema": GeminiAnalysisPromptBuilder.responseJSONSchema,
-                    "thinkingConfig": [
-                        "includeThoughts": true,
-                    ],
-                ],
-            ]
-
-            let response: GeminiGenerateContentResponse = try await executor.postJSON(
-                path: "models/\(analysisModel):generateContent",
-                body: requestBody,
-                decode: GeminiGenerateContentResponse.self
+            let analysisURLs = GeminiContentEncoder.extractAnalysisURLs(from: content)
+            let initial = try await analyzeOnce(
+                contents: contents,
+                urlContextURLs: analysisURLs,
+                thoughtHandler: thoughtHandler,
+                requiresExplicitClarificationQuestions: false
             )
-            let text = try extractPrimaryText(from: response)
-            let thoughtSummary = extractThoughtSummary(from: response)
-            let payload = try decodeJSONPayload(GeminiAnalysisPayload.self, from: text)
-            return try validate(payload: payload, thoughtSummary: thoughtSummary)
+
+            if Self.requiresClarificationRepair(initial.payload) {
+                let repaired = try await analyzeOnce(
+                    contents: contents,
+                    urlContextURLs: analysisURLs,
+                    thoughtHandler: thoughtHandler,
+                    requiresExplicitClarificationQuestions: true
+                )
+                return try validate(payload: repaired.payload, thoughtSummary: repaired.thoughtSummary)
+            }
+
+            return try validate(payload: initial.payload, thoughtSummary: initial.thoughtSummary)
         } catch let error as CasebaseError {
             throw error
         } catch let error as GeminiTransportError {
@@ -133,6 +132,9 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
                         "text": GeminiAnswerPromptBuilder.answerPrompt(question: trimmedQuestion, hits: hits, policy: policy),
                     ]],
                 ]],
+                "generationConfig": [
+                    "thinkingConfig": Self.answerThinkingConfig,
+                ],
             ]
 
             let answerResponse: GeminiGenerateContentResponse = try await executor.postJSON(
@@ -165,6 +167,7 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
                     "generationConfig": [
                         "responseMimeType": "application/json",
                         "responseJsonSchema": GeminiAnswerPromptBuilder.attributionJSONSchema,
+                        "thinkingConfig": Self.answerThinkingConfig,
                     ],
                 ]
 
@@ -335,13 +338,7 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
     }
 
     private func extractPrimaryText(from response: GeminiGenerateContentResponse) throws -> String {
-        let text = response.candidates?
-            .compactMap(\.content?.parts)
-            .flatMap { $0 }
-            .filter { $0.thought != true }
-            .compactMap(\.text)
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = Self.extractText(from: response, thought: false)
 
         guard let text, !text.isEmpty else {
             throw CasebaseError.emptyResponse
@@ -350,13 +347,7 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
     }
 
     private func extractThoughtSummary(from response: GeminiGenerateContentResponse) -> String? {
-        let thoughtSummary = response.candidates?
-            .compactMap(\.content?.parts)
-            .flatMap { $0 }
-            .filter { $0.thought == true }
-            .compactMap(\.text)
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let thoughtSummary = Self.extractText(from: response, thought: true)
 
         guard let thoughtSummary, !thoughtSummary.isEmpty else {
             return nil
@@ -369,6 +360,141 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
             throw CasebaseError.emptyResponse
         }
         return try JSONDecoder().decode(type, from: data)
+    }
+
+    private func analyzeOnce(
+        contents: [GeminiJSONObject],
+        urlContextURLs: [URL],
+        thoughtHandler: AIThoughtHandler?,
+        requiresExplicitClarificationQuestions: Bool
+    ) async throws -> (payload: GeminiAnalysisPayload, thoughtSummary: String?) {
+        let requestBody = Self.analysisRequestBody(
+            contents: contents,
+            urlContextURLs: urlContextURLs,
+            requiresExplicitClarificationQuestions: requiresExplicitClarificationQuestions
+        )
+        let streamed = try await streamAnalysisResponse(
+            requestBody: requestBody,
+            thoughtHandler: thoughtHandler
+        )
+        let payload = try decodeJSONPayload(GeminiAnalysisPayload.self, from: streamed.primaryText)
+        return (payload, streamed.thoughtSummary)
+    }
+
+    private func streamAnalysisResponse(
+        requestBody: GeminiJSONObject,
+        thoughtHandler: AIThoughtHandler?
+    ) async throws -> (primaryText: String, thoughtSummary: String?) {
+        let accumulator = GeminiStreamingAccumulator()
+
+        try await executor.streamJSON(
+            path: "models/\(analysisModel):streamGenerateContent?alt=sse",
+            body: requestBody,
+            decode: GeminiGenerateContentResponse.self
+        ) { response in
+            if let thoughtChunk = Self.extractText(from: response, thought: true) {
+                let visibleThought = accumulator.appendThought(thoughtChunk)
+                thoughtHandler?(visibleThought)
+            }
+
+            if let primaryChunk = Self.extractText(from: response, thought: false) {
+                accumulator.appendPrimary(primaryChunk)
+            }
+        }
+
+        let primaryText = accumulator.primaryText
+        guard !primaryText.isEmpty else {
+            throw CasebaseError.emptyResponse
+        }
+
+        return (
+            primaryText: primaryText,
+            thoughtSummary: accumulator.thoughtText.isEmpty ? nil : accumulator.thoughtText
+        )
+    }
+
+    private static func extractText(from response: GeminiGenerateContentResponse, thought: Bool) -> String? {
+        let text = response.candidates?
+            .compactMap(\.content?.parts)
+            .flatMap { $0 }
+            .filter { ($0.thought ?? false) == thought }
+            .compactMap(\.text)
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let text, !text.isEmpty else {
+            return nil
+        }
+        return text
+    }
+
+    private static func analysisRequestBody(
+        contents: [GeminiJSONObject],
+        urlContextURLs: [URL],
+        requiresExplicitClarificationQuestions: Bool
+    ) -> GeminiJSONObject {
+        var body: GeminiJSONObject = [
+            "contents": adjustedAnalysisContents(
+                from: contents,
+                requiresExplicitClarificationQuestions: requiresExplicitClarificationQuestions
+            ),
+            "generationConfig": [
+                "responseMimeType": "application/json",
+                "responseJsonSchema": GeminiAnalysisPromptBuilder.responseJSONSchema,
+                "thinkingConfig": analysisThinkingConfig,
+            ],
+        ]
+
+        if !urlContextURLs.isEmpty {
+            body["tools"] = [[
+                "url_context": [:],
+            ]]
+        }
+
+        return body
+    }
+
+    private static func adjustedAnalysisContents(
+        from contents: [GeminiJSONObject],
+        requiresExplicitClarificationQuestions: Bool
+    ) -> [GeminiJSONObject] {
+        guard requiresExplicitClarificationQuestions,
+              var firstContent = contents.first,
+              var parts = firstContent["parts"] as? [GeminiJSONObject]
+        else {
+            return contents
+        }
+
+        parts.append(["text": CasebasePromptCatalog.ai.clarificationRepairInstruction])
+        firstContent["parts"] = parts
+
+        var adjusted = contents
+        adjusted[0] = firstContent
+        return adjusted
+    }
+
+    private static func requiresClarificationRepair(_ payload: GeminiAnalysisPayload) -> Bool {
+        guard payload.needsReview else { return false }
+        let questions = payload.clarification.questions.compactMap { question -> ClarificationQuestion? in
+            let title = question.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let reason = question.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty, !reason.isEmpty else { return nil }
+            return ClarificationQuestion(id: "probe", title: title, reason: reason, suggestedOptions: [])
+        }
+        return questions.isEmpty
+    }
+
+    private static var analysisThinkingConfig: GeminiJSONObject {
+        [
+            "includeThoughts": true,
+            "thinkingLevel": "MEDIUM",
+        ]
+    }
+
+    private static var answerThinkingConfig: GeminiJSONObject {
+        [
+            "thinkingLevel": "MEDIUM",
+        ]
     }
 
     private static func describeTransportError(_ error: GeminiTransportError) -> String {
@@ -384,5 +510,19 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
         case let .decodingFailed(preview):
             return CasebasePromptCatalog.errors.failedToDecodeAIResponse(preview)
         }
+    }
+}
+
+private final class GeminiStreamingAccumulator: @unchecked Sendable {
+    private(set) var primaryText = ""
+    private(set) var thoughtText = ""
+
+    func appendPrimary(_ chunk: String) {
+        primaryText += chunk
+    }
+
+    func appendThought(_ chunk: String) -> String {
+        thoughtText += chunk
+        return thoughtText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

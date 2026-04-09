@@ -40,14 +40,6 @@ struct NotchSavedPreviewView: View {
                                     .layoutPriority(1)
                                     .fixedSize(horizontal: false, vertical: true)
 
-                                if record.needsReview {
-                                    Text(CasebasePromptCatalog.ui.needsReviewLabel)
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(Color.black)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(Capsule(style: .continuous).fill(Color.white.opacity(0.9)))
-                                }
                             }
 
                             Text(record.shortSummary)

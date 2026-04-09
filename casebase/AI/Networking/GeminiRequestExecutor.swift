@@ -47,7 +47,7 @@ actor GeminiRequestExecutor {
         }
 
         let payload = try JSONSerialization.data(withJSONObject: body, options: [])
-        let requestURL = baseURL.appending(path: path)
+        let requestURL = Self.requestURL(for: path, relativeTo: baseURL)
 
         var request = URLRequest(url: requestURL)
         request.httpMethod = "POST"
@@ -107,9 +107,154 @@ actor GeminiRequestExecutor {
         throw lastError ?? GeminiTransportError.invalidResponse
     }
 
+    func streamJSON<Response: Decodable>(
+        path: String,
+        body: GeminiJSONObject,
+        decode responseType: Response.Type,
+        onEvent: @Sendable @escaping (Response) async throws -> Void
+    ) async throws {
+        guard JSONSerialization.isValidJSONObject(body) else {
+            throw GeminiTransportError.invalidRequestBody
+        }
+
+        let payload = try JSONSerialization.data(withJSONObject: body, options: [])
+        let requestURL = Self.requestURL(for: path, relativeTo: baseURL)
+
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = requestTimeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        request.httpBody = payload
+
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GeminiTransportError.invalidResponse
+        }
+
+        guard (200 ..< 300).contains(httpResponse.statusCode) else {
+            let collected = try await Self.collectData(from: bytes)
+            throw GeminiTransportError.server(
+                statusCode: httpResponse.statusCode,
+                message: Self.extractServerMessage(from: collected),
+                retryable: httpResponse.statusCode == 429 || (500 ... 599).contains(httpResponse.statusCode)
+            )
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .useDefaultKeys
+
+        var eventDataLines: [String] = []
+        var currentLine = Data()
+
+        for try await byte in bytes {
+            if byte == 0x0A {
+                try await Self.processSSELine(
+                    from: currentLine,
+                    eventDataLines: &eventDataLines,
+                    decoder: decoder,
+                    responseType: responseType,
+                    onEvent: onEvent
+                )
+                currentLine.removeAll(keepingCapacity: true)
+                continue
+            }
+
+            currentLine.append(byte)
+        }
+
+        if !currentLine.isEmpty {
+            try await Self.processSSELine(
+                from: currentLine,
+                eventDataLines: &eventDataLines,
+                decoder: decoder,
+                responseType: responseType,
+                onEvent: onEvent
+            )
+        }
+
+        if !eventDataLines.isEmpty {
+            try await Self.emitSSEEvent(
+                from: eventDataLines,
+                decoder: decoder,
+                responseType: responseType,
+                onEvent: onEvent
+            )
+        }
+    }
+
     private static func normalizedBaseURL(_ url: URL) -> URL {
         let trimmed = url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return URL(string: trimmed) ?? url
+    }
+
+    private static func requestURL(for path: String, relativeTo baseURL: URL) -> URL {
+        let base = baseURL.absoluteString.hasSuffix("/") ? baseURL.absoluteString : baseURL.absoluteString + "/"
+        return URL(string: base + path) ?? baseURL.appending(path: path)
+    }
+
+    private static func emitSSEEvent<Response: Decodable>(
+        from lines: [String],
+        decoder: JSONDecoder,
+        responseType: Response.Type,
+        onEvent: @Sendable (Response) async throws -> Void
+    ) async throws {
+        guard !lines.isEmpty else { return }
+        let payload = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty, payload != "[DONE]" else { return }
+        guard let data = payload.data(using: .utf8) else {
+            throw GeminiTransportError.decodingFailed(payload)
+        }
+
+        do {
+            let response = try decoder.decode(responseType, from: data)
+            try await onEvent(response)
+        } catch {
+            throw GeminiTransportError.decodingFailed(payload)
+        }
+    }
+
+    private static func processSSELine<Response: Decodable>(
+        from rawLine: Data,
+        eventDataLines: inout [String],
+        decoder: JSONDecoder,
+        responseType: Response.Type,
+        onEvent: @Sendable (Response) async throws -> Void
+    ) async throws {
+        let lineData: Data
+        if rawLine.last == 0x0D {
+            lineData = rawLine.dropLast()
+        } else {
+            lineData = rawLine
+        }
+
+        guard let line = String(data: lineData, encoding: .utf8) else {
+            throw GeminiTransportError.decodingFailed(String(decoding: lineData, as: UTF8.self))
+        }
+
+        if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try await emitSSEEvent(
+                from: eventDataLines,
+                decoder: decoder,
+                responseType: responseType,
+                onEvent: onEvent
+            )
+            eventDataLines.removeAll(keepingCapacity: true)
+            return
+        }
+
+        guard line.hasPrefix("data:") else { return }
+        let value = line.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
+        eventDataLines.append(String(value))
+    }
+
+    private static func collectData(from bytes: URLSession.AsyncBytes) async throws -> Data {
+        var data = Data()
+        for try await byte in bytes {
+            data.append(byte)
+        }
+        return data
     }
 
     private static func sleepBeforeRetry(attempt: Int) async throws {

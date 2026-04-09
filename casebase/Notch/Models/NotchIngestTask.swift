@@ -31,6 +31,7 @@ struct NotchIngestTask: Identifiable, Equatable {
     var skippedClarificationQuestionIDs: [String]
     var clarificationValidationMessage: String?
     var currentClarificationQuestionIndex: Int
+    var prefersAutomaticExpansion: Bool
     var createdAt: Date
     var updatedAt: Date
 
@@ -47,6 +48,7 @@ struct NotchIngestTask: Identifiable, Equatable {
         skippedClarificationQuestionIDs: [String] = [],
         clarificationValidationMessage: String? = nil,
         currentClarificationQuestionIndex: Int = 0,
+        prefersAutomaticExpansion: Bool = true,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -62,6 +64,7 @@ struct NotchIngestTask: Identifiable, Equatable {
         self.skippedClarificationQuestionIDs = skippedClarificationQuestionIDs
         self.clarificationValidationMessage = clarificationValidationMessage
         self.currentClarificationQuestionIndex = currentClarificationQuestionIndex
+        self.prefersAutomaticExpansion = prefersAutomaticExpansion
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

@@ -135,8 +135,8 @@ enum CasebasePromptCatalog {
 
         var libraryEmptyDetail: String {
             switch language {
-            case .simplifiedChinese: return "拖入文件、图片、文字或音频后，整理好的内容会出现在这里。"
-            case .english: return "Drop files, images, text, or audio and processed items will appear here."
+            case .simplifiedChinese: return "拖入文件、图片、文字或音频后，处理中和已保存的内容都会出现在这里。"
+            case .english: return "Drop files, images, text, or audio and both in-progress and saved items will appear here."
             }
         }
 
@@ -184,14 +184,14 @@ enum CasebasePromptCatalog {
 
         var libraryRevealButtonTitle: String {
             switch language {
-            case .simplifiedChinese: return "在文件夹中打开"
-            case .english: return "Show in Finder"
+            case .simplifiedChinese: return "定位"
+            case .english: return "Reveal"
             }
         }
 
         var libraryOpenButtonTitle: String {
             switch language {
-            case .simplifiedChinese: return "直接打开"
+            case .simplifiedChinese: return "打开"
             case .english: return "Open"
             }
         }
@@ -465,8 +465,8 @@ enum CasebasePromptCatalog {
 
         var settingsClearDataConfirmButtonTitle: String {
             switch language {
-            case .simplifiedChinese: return "确定清空"
-            case .english: return "Clear everything"
+            case .simplifiedChinese: return "清空"
+            case .english: return "Clear"
             }
         }
 
@@ -811,7 +811,7 @@ enum CasebasePromptCatalog {
         var clearButtonTitle: String {
             switch language {
             case .simplifiedChinese: return "确定"
-            case .english: return "Clear"
+            case .english: return "Done"
             }
         }
 
@@ -884,6 +884,7 @@ enum CasebasePromptCatalog {
                   1. `uncertaintySummary` 说明最关键的不确定点
                   2. `impactExplanation` 说明为什么这会影响入库和后续检索/问答
                   3. `questions` 只保留信息价值最高的 1~3 个问题，按优先级排序
+                - 硬性要求：如果 `needsReview = true`，那么 `clarification.questions` 必须至少包含 1 个可回答的问题；只有在 `needsReview = false` 时，`clarification.questions` 才能为空数组。
                 - 问题必须直接基于当前内容和真实缺口，不要为了凑分类、用途或字段而机械提问。
                 - 每个问题最多给 3 个推荐选项，选项要短、互斥、可点击。
                 - 如果信息已经足够，不要再追问；此时 `clarification.uncertaintySummary` 和 `clarification.impactExplanation` 置空，`clarification.questions` 返回空数组。
@@ -918,6 +919,7 @@ enum CasebasePromptCatalog {
                   1. `uncertaintySummary` should name the most important uncertainty
                   2. `impactExplanation` should explain why it blocks reliable ingestion, retrieval, or QA
                   3. `questions` should contain only the top 1 to 3 highest-value questions in priority order
+                - Hard rule: if `needsReview = true`, then `clarification.questions` must contain at least 1 answerable question. `clarification.questions` may be empty only when `needsReview = false`.
                 - Each question must be grounded in the actual source and the remaining gaps. Do not ask mechanical category/use/field questions unless the content truly requires them.
                 - Each question may include at most 3 short mutually exclusive suggested options.
                 - If the item is already usable, do not ask anything else. In that case return empty strings for `clarification.uncertaintySummary` and `clarification.impactExplanation`, and an empty `clarification.questions` array.
@@ -948,7 +950,32 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var urlContextLabel: String {
+            switch language {
+            case .simplifiedChinese: return "提取到的网页链接"
+            case .english: return "Detected web links"
+            }
+        }
+
+        var urlContextInstruction: String {
+            switch language {
+            case .simplifiedChinese:
+                return "请使用 URL Context 读取这些网页，把网页正文里的关键信息也纳入分析。若网页内容与链接周围的零散文本不一致，优先采用网页中可确认的事实。"
+            case .english:
+                return "Use URL Context to read these pages and fold the page content into the analysis. If the fetched page conflicts with loose surrounding text, prefer verifiable facts from the page itself."
+            }
+        }
+
         var userSupplementMetadataKey: String { "__casebase_userSupplement" }
+
+        var clarificationRepairInstruction: String {
+            switch language {
+            case .simplifiedChinese:
+                return "上一个结果里出现了 `needsReview = true` 但没有给出可补全问题。这是不允许的。请重新生成完整 JSON：如果仍然需要复核，必须在 `clarification.questions` 中给出 1 到 3 个具体可回答的问题；如果确实不需要追问，就把 `needsReview` 改成 false。"
+            case .english:
+                return "The previous result set `needsReview = true` without providing any clarification questions. That is invalid. Regenerate the full JSON so that if review is still needed, `clarification.questions` contains 1 to 3 concrete answerable questions. If no follow-up is needed, set `needsReview` to false."
+            }
+        }
 
         var analysisResponseJSONSchema: GeminiJSONObject {
             [
@@ -1300,8 +1327,8 @@ enum CasebasePromptCatalog {
 
         private var analysisNeedsReviewDescription: String {
             switch language {
-            case .simplifiedChinese: return "当内容模糊、字段不完整或存在歧义时为 true。"
-            case .english: return "True when the item remains blurry, incomplete, or ambiguous and should be reviewed."
+            case .simplifiedChinese: return "当内容模糊、字段不完整或存在歧义时为 true；若为 true，必须同时提供至少 1 个 clarification 问题。"
+            case .english: return "True when the item remains blurry, incomplete, or ambiguous and should be reviewed; when true, you must also provide at least 1 clarification question."
             }
         }
 
@@ -1373,8 +1400,8 @@ enum CasebasePromptCatalog {
 
         private var clarificationQuestionsDescription: String {
             switch language {
-            case .simplifiedChinese: return "按信息价值排序的 1 到 3 个澄清问题；如果信息已经足够，返回空数组。"
-            case .english: return "1 to 3 clarification questions sorted by information value. Return an empty array when the item is already usable."
+            case .simplifiedChinese: return "按信息价值排序的 1 到 3 个澄清问题；当 needsReview 为 true 时这里不能为空，只有信息已经足够且 needsReview 为 false 时才返回空数组。"
+            case .english: return "1 to 3 clarification questions sorted by information value. This must be non-empty when needsReview is true, and may be empty only when the item is already usable and needsReview is false."
             }
         }
 
@@ -1749,6 +1776,19 @@ enum CasebasePromptCatalog {
             }
         }
 
+        func importPayloadExceedsSizeLimit(
+            fileName: String,
+            sizeDescription: String,
+            limitDescription: String
+        ) -> String {
+            switch language {
+            case .simplifiedChinese:
+                return "“\(fileName)”大小为 \(sizeDescription)，超过当前可分析上限 \(limitDescription)。请压缩、拆分，或调整大小上限后重试。"
+            case .english:
+                return "\"\(fileName)\" is \(sizeDescription), which exceeds the current analysis limit of \(limitDescription). Compress it, split it, or raise the limit and try again."
+            }
+        }
+
         var cannotEmbedEmptyText: String {
             switch language {
             case .simplifiedChinese: return "无法为一段空文本生成向量。"
@@ -1788,6 +1828,33 @@ enum CasebasePromptCatalog {
             switch language {
             case .simplifiedChinese: return "无法解析模型响应：\(preview)"
             case .english: return "Failed to decode model response: \(preview)"
+            }
+        }
+
+        var analysisFallbackNeedsManualRetry: String {
+            switch language {
+            case .simplifiedChinese:
+                return "AI 未能稳定解析这份内容，系统也没有生成可补全的问题，请检查内容清晰度或换一种更完整的输入后重试。"
+            case .english:
+                return "AI could not reliably analyze this item and no clarification questions were generated. Please retry with clearer or more complete input."
+            }
+        }
+
+        var analysisNeedsClarificationButProvidedNone: String {
+            switch language {
+            case .simplifiedChinese:
+                return "AI 判断这份内容仍有关键不确定点，但没有生成可补全的问题，因此本次不入库。"
+            case .english:
+                return "AI marked this item as uncertain but did not provide clarification questions, so it was not saved."
+            }
+        }
+
+        var clarificationExhaustedWithoutReliableResult: String {
+            switch language {
+            case .simplifiedChinese:
+                return "补全次数已用完，系统仍无法得到可靠结果，因此本次不入库。"
+            case .english:
+                return "Clarification attempts were exhausted and the result is still not reliable, so the item was not saved."
             }
         }
 
@@ -1833,10 +1900,24 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var officeExtractionRequiresFileBackedPayload: String {
+            switch language {
+            case .simplifiedChinese: return "Office 文档提取只能处理文件型导入内容。"
+            case .english: return "Office extraction requires a file-backed payload."
+            }
+        }
+
         var payloadIsNotASupportedPDFFile: String {
             switch language {
             case .simplifiedChinese: return "当前导入内容不是受支持的 PDF 文件。"
             case .english: return "Payload is not a supported PDF file."
+            }
+        }
+
+        var payloadIsNotASupportedOfficeFile: String {
+            switch language {
+            case .simplifiedChinese: return "当前导入内容不是受支持的 Office 文件。"
+            case .english: return "Payload is not a supported Office file."
             }
         }
 
@@ -1865,6 +1946,13 @@ enum CasebasePromptCatalog {
             switch language {
             case .simplifiedChinese: return "无法为图片生成用于 AI 分析的压缩预览。"
             case .english: return "Failed to prepare a compressed image preview for AI analysis."
+            }
+        }
+
+        var failedToGenerateDocumentPreview: String {
+            switch language {
+            case .simplifiedChinese: return "无法为文档生成用于 AI 分析的预览图。"
+            case .english: return "Failed to generate a document preview for AI analysis."
             }
         }
 

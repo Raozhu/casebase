@@ -13,7 +13,9 @@ struct NotchLibraryDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             header
 
-            if let record = viewModel.selectedLibraryRecord {
+            if let task = viewModel.selectedLibraryTask {
+                taskDetailBody(task: task)
+            } else if let record = viewModel.selectedLibraryRecord {
                 detailBody(record: record)
             } else {
                 missingRecordView
@@ -59,12 +61,42 @@ struct NotchLibraryDetailView: View {
         }
     }
 
+    private func taskDetailBody(task: NotchIngestTask) -> some View {
+        Group {
+            if isMeasuring {
+                taskDetailSections(task: task)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    taskDetailSections(task: task)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+
     private func detailSections(record: ImportRecord) -> some View {
         LazyVStack(alignment: .leading, spacing: 12) {
             heroCard(record: record)
             metadataCard(record: record)
             structuredDataCard(record: record)
             snippetsCard(record: record)
+
+            if let libraryErrorMessage = viewModel.libraryErrorMessage, !libraryErrorMessage.isEmpty {
+                LibraryGlassCard {
+                    Text(libraryErrorMessage)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(red: 1.0, green: 0.58, blue: 0.58))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
+    private func taskDetailSections(task: NotchIngestTask) -> some View {
+        LazyVStack(alignment: .leading, spacing: 12) {
+            taskHeroCard(task: task)
+            taskMetadataCard(task: task)
 
             if let libraryErrorMessage = viewModel.libraryErrorMessage, !libraryErrorMessage.isEmpty {
                 LibraryGlassCard {
@@ -92,12 +124,13 @@ struct NotchLibraryDetailView: View {
                     HStack(spacing: 8) {
                         LibraryInfoPill(
                             text: viewModel.libraryKindLabel(for: record),
-                            tone: .accent
+                            tone: notchLibraryInfoTone(for: record.sourceKind)
                         )
 
                         LibraryInfoPill(
                             text: CasebasePromptCatalog.ui.libraryParseStatusValue(record.parseStatus),
-                            tone: record.parseStatus == .ready ? .neutral : .warning
+                            tone: notchLibraryInfoTone(for: record.parseStatus),
+                            icon: notchPixelIcon(for: record.parseStatus)
                         )
 
                         Spacer(minLength: 0)
@@ -140,6 +173,68 @@ struct NotchLibraryDetailView: View {
         }
     }
 
+    private func taskHeroCard(task: NotchIngestTask) -> some View {
+        LibraryGlassCard {
+            HStack(alignment: .top, spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .fill(Color.white.opacity(0.05))
+
+                    NotchPixelIconView(
+                        icon: notchPixelIcon(for: task.sourceKind),
+                        color: notchPixelTone(for: task.sourceKind).glyphColor,
+                        size: 30
+                    )
+                }
+                .frame(width: 128, height: 128)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        LibraryInfoPill(
+                            text: viewModel.libraryKindLabel(for: task.sourceKind),
+                            tone: notchLibraryInfoTone(for: task.sourceKind)
+                        )
+
+                        LibraryInfoPill(
+                            text: viewModel.statusText(for: task),
+                            tone: taskStatusTone(task),
+                            icon: notchPixelIcon(for: task.status)
+                        )
+
+                        Spacer(minLength: 0)
+                    }
+
+                    Text(task.title)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(viewModel.detailText(for: task))
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.white.opacity(0.76))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 10) {
+                        DetailMetaFact(
+                            label: CasebasePromptCatalog.ui.libraryUpdatedAtLabel,
+                            value: viewModel.formattedLibraryTimestamp(for: task.updatedAt)
+                        )
+
+                        DetailMetaFact(
+                            label: CasebasePromptCatalog.ui.libraryFileNameLabel,
+                            value: task.payload.displayName
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
     private func metadataCard(record: ImportRecord) -> some View {
         librarySectionCard(title: CasebasePromptCatalog.ui.libraryMetadataSectionTitle) {
             VStack(alignment: .leading, spacing: 12) {
@@ -161,6 +256,25 @@ struct NotchLibraryDetailView: View {
                         label: CasebasePromptCatalog.ui.libraryTagsLabel,
                         value: record.tags.joined(separator: " · ")
                     )
+                }
+            }
+        }
+    }
+
+    private func taskMetadataCard(task: NotchIngestTask) -> some View {
+        librarySectionCard(title: CasebasePromptCatalog.ui.libraryMetadataSectionTitle) {
+            VStack(alignment: .leading, spacing: 12) {
+                DetailValueRow(label: CasebasePromptCatalog.ui.libraryFileNameLabel, value: task.payload.displayName)
+                DetailValueRow(label: CasebasePromptCatalog.ui.libraryTypeLabel, value: viewModel.libraryKindLabel(for: task.sourceKind))
+                DetailValueRow(label: CasebasePromptCatalog.ui.libraryParseStatusLabel, value: viewModel.statusText(for: task))
+                DetailValueRow(label: CasebasePromptCatalog.ui.libraryUpdatedAtLabel, value: viewModel.formattedLibraryTimestamp(for: task.updatedAt))
+
+                if let record = task.record, !record.scene.isEmpty {
+                    DetailValueRow(label: CasebasePromptCatalog.ui.librarySceneLabel, value: record.scene)
+                }
+
+                if let record = task.record, !record.purpose.isEmpty {
+                    DetailValueRow(label: CasebasePromptCatalog.ui.libraryPurposeLabel, value: record.purpose)
                 }
             }
         }
@@ -219,24 +333,29 @@ struct NotchLibraryDetailView: View {
 
     private var actionBar: some View {
         HStack(spacing: 8) {
+            Spacer(minLength: 0)
+
             LibraryActionTileButton(
-                systemImage: "folder",
+                icon: .folder,
                 title: CasebasePromptCatalog.ui.libraryRevealButtonTitle,
                 action: viewModel.revealSelectedLibraryRecord
             )
+            .frame(width: LibraryActionTileButton.standardWidth)
 
             LibraryActionTileButton(
-                systemImage: "arrow.up.right.square",
+                icon: .open,
                 title: CasebasePromptCatalog.ui.libraryOpenButtonTitle,
                 action: viewModel.openSelectedLibraryRecord
             )
+            .frame(width: LibraryActionTileButton.standardWidth)
 
             LibraryActionTileButton(
-                systemImage: "trash",
+                icon: .trash,
                 title: CasebasePromptCatalog.ui.libraryDeleteButtonTitle,
                 isDestructive: true,
                 action: viewModel.deleteSelectedLibraryRecord
             )
+            .frame(width: LibraryActionTileButton.standardWidth)
             .disabled(viewModel.isDeletingLibraryRecord)
         }
     }
@@ -251,6 +370,23 @@ struct NotchLibraryDetailView: View {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func taskStatusTone(_ task: NotchIngestTask) -> LibraryInfoPillTone {
+        switch task.status {
+        case .queued, .preparing:
+            return .neutral
+        case .recognizing:
+            return .info
+        case .storing:
+            return .success
+        case .needsInput:
+            return .warning
+        case .succeeded:
+            return .success
+        case .failed:
+            return .danger
         }
     }
 }

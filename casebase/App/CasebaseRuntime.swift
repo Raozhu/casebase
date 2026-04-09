@@ -24,7 +24,8 @@ struct CasebaseRuntime {
             extractor: extractor,
             knowledgeStore: knowledgeStore,
             aiClient: aiClient,
-            assetVault: assetVault
+            assetVault: assetVault,
+            maximumImportFileBytes: configuration.ai.maxImportFileBytes
         )
         let answerService = KnowledgeBackedAnswerService(
             knowledgeStore: knowledgeStore,

@@ -92,6 +92,7 @@ final class GlobalSelectionCaptureController {
         }
 
         let shortcut = hotKeyStore.shortcut(for: .selectionCapture)
+        let usesBareF1Fallback = shortcut.keyCode == UInt32(kVK_F1) && shortcut.carbonModifiers == 0
         CasebaseDebugLogger.log("selection hotkey registering: \(shortcut.displayString) keyCode=\(shortcut.keyCode) modifiers=\(shortcut.carbonModifiers)")
         let status = RegisterEventHotKey(
             shortcut.keyCode,
@@ -102,18 +103,26 @@ final class GlobalSelectionCaptureController {
             &hotKeyRef
         )
 
-        guard status == noErr, hotKeyRef != nil else {
-            CasebaseDebugLogger.log("selection hotkey registration failed: status=\(status)")
-            Task { @MainActor [onError] in
-                onError(GlobalSelectionCaptureError.hotKeyRegistrationFailed)
+        if status != noErr || hotKeyRef == nil {
+            self.hotKeyRef = nil
+            guard usesBareF1Fallback else {
+                CasebaseDebugLogger.log("selection hotkey registration failed: status=\(status)")
+                Task { @MainActor [onError] in
+                    onError(GlobalSelectionCaptureError.hotKeyRegistrationFailed)
+                }
+                updateFallbackMonitor(for: nil)
+                updateBrightnessHIDMonitor(for: nil)
+                updateEventTap(for: nil)
+                return
             }
-            return
+            CasebaseDebugLogger.log("selection hotkey registration fell back to bare F1 monitors: status=\(status)")
+        } else {
+            CasebaseDebugLogger.log("selection hotkey registration succeeded")
         }
 
-        CasebaseDebugLogger.log("selection hotkey registration succeeded")
-        updateFallbackMonitor(for: nil)
-        updateBrightnessHIDMonitor(for: nil)
-        updateEventTap(for: nil)
+        updateFallbackMonitor(for: shortcut)
+        updateBrightnessHIDMonitor(for: shortcut)
+        updateEventTap(for: shortcut)
     }
 
     fileprivate func handleHotKeyPressed(for pressedHotKeyID: EventHotKeyID?) {
@@ -207,15 +216,10 @@ final class GlobalSelectionCaptureController {
         let hasListenAccess = CGPreflightListenEventAccess()
         CasebaseDebugLogger.log("selection event tap listen access preflight: \(hasListenAccess)")
 
-        guard hasListenAccess || CGRequestListenEventAccess() else {
-            CasebaseDebugLogger.log("selection event tap listen access denied")
-            Task { @MainActor [onError] in
-                onError(GlobalSelectionCaptureError.inputMonitoringPermissionRequired)
-            }
+        guard hasListenAccess else {
+            CasebaseDebugLogger.log("selection event tap skipped because listen access is not granted")
             return
         }
-
-        CasebaseDebugLogger.log("selection event tap listen access granted")
 
         guard let systemDefinedType = CGEventType(rawValue: UInt32(NX_SYSDEFINED)) else {
             CasebaseDebugLogger.log("selection event tap failed: NX_SYSDEFINED unavailable")
@@ -235,9 +239,6 @@ final class GlobalSelectionCaptureController {
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
             CasebaseDebugLogger.log("selection event tap creation failed")
-            Task { @MainActor [onError] in
-                onError(GlobalSelectionCaptureError.inputMonitoringPermissionRequired)
-            }
             return
         }
 

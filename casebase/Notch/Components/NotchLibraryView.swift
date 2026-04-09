@@ -19,7 +19,7 @@ struct NotchLibraryView: View {
                 libraryStatusView(message: CasebasePromptCatalog.ui.libraryLoadingMessage)
             } else if let errorMessage = viewModel.libraryErrorMessage, !errorMessage.isEmpty {
                 errorView(message: errorMessage)
-            } else if viewModel.libraryRecords.isEmpty {
+            } else if viewModel.libraryEntries.isEmpty {
                 emptyView
             } else {
                 recordsView
@@ -34,16 +34,11 @@ struct NotchLibraryView: View {
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(.white)
 
-            if !viewModel.libraryRecords.isEmpty {
-                Text("\(viewModel.libraryRecords.count)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.82))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.white.opacity(0.08))
-                    )
+            if !viewModel.libraryEntries.isEmpty {
+                NotchPixelCountBadge(
+                    text: viewModel.libraryEntries.count >= 10 ? "9+" : "\(viewModel.libraryEntries.count)",
+                    tone: .neutral
+                )
             }
 
             Spacer()
@@ -55,8 +50,13 @@ struct NotchLibraryView: View {
     private var recordsView: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(alignment: .leading, spacing: 14) {
-                ForEach(viewModel.libraryRecords) { record in
-                    LibraryRecordRow(record: record, viewModel: viewModel, isMeasuring: isMeasuring)
+                ForEach(viewModel.libraryEntries) { entry in
+                    switch entry {
+                    case let .record(record):
+                        LibraryRecordRow(record: record, viewModel: viewModel, isMeasuring: isMeasuring)
+                    case let .task(task):
+                        LibraryTaskRow(task: task, viewModel: viewModel)
+                    }
                 }
             }
             .padding(.bottom, 4)
@@ -88,10 +88,12 @@ struct NotchLibraryView: View {
                 .foregroundStyle(Color(red: 1.0, green: 0.58, blue: 0.58))
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button(action: viewModel.openLibrary) {
-                Text(CasebasePromptCatalog.ui.retryButtonTitle)
-            }
-            .buttonStyle(NotchActionButtonStyle(prominent: false))
+            LibraryActionTileButton(
+                icon: .refresh,
+                title: CasebasePromptCatalog.ui.retryButtonTitle,
+                action: viewModel.openLibrary
+            )
+            .frame(width: LibraryActionTileButton.standardWidth)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -125,41 +127,40 @@ private struct LibraryRecordRow: View {
                     isMeasuring: isMeasuring
                 )
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .top, spacing: 8) {
-                        Text(record.title)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            LibraryInfoPill(
+                                text: viewModel.libraryKindLabel(for: record),
+                                tone: notchLibraryInfoTone(for: record.sourceKind)
+                            )
 
-                        Spacer(minLength: 6)
+                            Text(record.title)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
 
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.34))
-                    }
-
-                    HStack(spacing: 8) {
-                        LibraryInfoPill(
-                            text: viewModel.libraryKindLabel(for: record),
-                            tone: .accent
-                        )
+                        if !record.scene.isEmpty {
+                            Text(record.scene)
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.white.opacity(0.62))
+                                .lineLimit(1)
+                        }
 
                         Text(viewModel.formattedLibraryTimestamp(for: record.updatedAt))
                             .font(.system(size: 10))
-                            .foregroundStyle(Color.white.opacity(0.46))
+                            .foregroundStyle(Color.white.opacity(0.44))
                             .lineLimit(1)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if !record.scene.isEmpty {
-                        Text(record.scene)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.white.opacity(0.58))
-                            .lineLimit(1)
-                    }
+                    LibraryRowTrailingState(
+                        icon: notchPixelIcon(for: record.parseStatus),
+                        tone: notchPixelTone(for: record.parseStatus)
+                    )
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(12)
             .background(
@@ -172,6 +173,131 @@ private struct LibraryRecordRow: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct LibraryTaskRow: View {
+    let task: NotchIngestTask
+    @ObservedObject var viewModel: NotchViewModel
+
+    var body: some View {
+        Button(action: { viewModel.openLibraryTask(task.id) }) {
+            HStack(alignment: .center, spacing: 12) {
+                LibraryTaskPreviewView(task: task, viewModel: viewModel)
+
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            LibraryInfoPill(
+                                text: viewModel.libraryKindLabel(for: task.sourceKind),
+                                tone: notchLibraryInfoTone(for: task.sourceKind)
+                            )
+
+                            Text(task.title)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
+
+                        Text(viewModel.detailText(for: task))
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.white.opacity(0.62))
+                            .lineLimit(2)
+
+                        Text(viewModel.formattedLibraryTimestamp(for: task.updatedAt))
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.white.opacity(0.44))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    LibraryRowTrailingState(
+                        icon: notchPixelIcon(for: task.status),
+                        tone: notchPixelTone(for: task.status)
+                    )
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.045))
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+}
+
+private struct LibraryRowTrailingState: View {
+    let icon: NotchPixelIcon
+    let tone: NotchPixelTone
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            NotchPixelDisplayIcon(icon: icon, tone: tone, size: 16, glowOpacity: 0.08)
+
+            Spacer(minLength: 0)
+
+            NotchPixelIconView(
+                icon: .replyAll,
+                color: Color.white.opacity(0.34),
+                size: 11
+            )
+        }
+        .frame(width: 24, height: 54, alignment: .trailing)
+        .padding(.vertical, 2)
+    }
+}
+
+private struct LibraryTaskPreviewView: View {
+    let task: NotchIngestTask
+    @ObservedObject var viewModel: NotchViewModel
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            previewTint.opacity(0.28),
+                            Color.white.opacity(0.04),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            NotchPixelIconView(
+                icon: notchPixelIcon(for: task.sourceKind),
+                color: notchPixelTone(for: task.sourceKind).glyphColor,
+                size: 25
+            )
+        }
+        .frame(width: 64, height: 64)
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private var previewTint: Color {
+        switch task.sourceKind {
+        case .image:
+            return Color(red: 0.22, green: 0.47, blue: 0.88)
+        case .pdf:
+            return Color(red: 0.66, green: 0.28, blue: 0.25)
+        case .text:
+            return Color(red: 0.23, green: 0.58, blue: 0.48)
+        case .audio:
+            return Color(red: 0.62, green: 0.35, blue: 0.78)
+        case .binary:
+            return Color(red: 0.40, green: 0.46, blue: 0.60)
+        }
     }
 }
 
@@ -231,9 +357,11 @@ struct LibraryAssetPreviewView: View {
 
     private var fallbackPreview: some View {
         VStack(spacing: compact ? 8 : 12) {
-            Image(systemName: viewModel.libraryPreviewSystemImage(for: record))
-                .font(.system(size: compact ? 24 : 32, weight: .semibold))
-                .foregroundStyle(.white)
+            NotchPixelIconView(
+                icon: notchPixelIcon(for: record.sourceKind),
+                color: notchPixelTone(for: record.sourceKind).glyphColor,
+                size: compact ? 24 : 32
+            )
 
             VStack(spacing: 4) {
                 Text(viewModel.libraryKindLabel(for: record))
@@ -322,23 +450,46 @@ enum LibraryInfoPillTone {
     case accent
     case warning
     case danger
+    case success
+    case info
 }
 
 struct LibraryInfoPill: View {
     let text: String
     let tone: LibraryInfoPillTone
+    let icon: NotchPixelIcon?
+    let iconOnly: Bool
+
+    init(text: String, tone: LibraryInfoPillTone, icon: NotchPixelIcon? = nil, iconOnly: Bool = false) {
+        self.text = text
+        self.tone = tone
+        self.icon = icon
+        self.iconOnly = iconOnly
+    }
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(foregroundColor)
-            .lineLimit(1)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(backgroundColor)
-            )
+        HStack(spacing: 6) {
+            if let icon {
+                NotchPixelIconView(icon: icon, color: foregroundColor, size: 10)
+            }
+
+            if !iconOnly {
+                Text(text)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(foregroundColor)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, iconOnly ? 7 : 9)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(backgroundColor)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(backgroundColor.opacity(0.12), lineWidth: 1)
+        }
     }
 
     private var foregroundColor: Color {
@@ -351,6 +502,10 @@ struct LibraryInfoPill: View {
             return Color(red: 1.0, green: 0.86, blue: 0.55)
         case .danger:
             return Color(red: 1.0, green: 0.72, blue: 0.72)
+        case .success:
+            return Color(red: 0.82, green: 1.0, blue: 0.74)
+        case .info:
+            return Color(red: 0.76, green: 0.90, blue: 1.0)
         }
     }
 
@@ -364,6 +519,10 @@ struct LibraryInfoPill: View {
             return Color(red: 0.29, green: 0.21, blue: 0.07)
         case .danger:
             return Color(red: 0.32, green: 0.10, blue: 0.12)
+        case .success:
+            return Color(red: 0.08, green: 0.23, blue: 0.14)
+        case .info:
+            return Color(red: 0.10, green: 0.18, blue: 0.29)
         }
     }
 }
@@ -390,14 +549,16 @@ struct LibraryTagPill: View {
 }
 
 struct LibraryActionTileButton: View {
-    let systemImage: String
+    static let standardWidth: CGFloat = 88
+
+    let icon: NotchPixelIcon
     let title: String
     let subtitle: String?
     let isDestructive: Bool
     let action: () -> Void
 
-    init(systemImage: String, title: String, subtitle: String? = nil, isDestructive: Bool = false, action: @escaping () -> Void) {
-        self.systemImage = systemImage
+    init(icon: NotchPixelIcon, title: String, subtitle: String? = nil, isDestructive: Bool = false, action: @escaping () -> Void) {
+        self.icon = icon
         self.title = title
         self.subtitle = subtitle
         self.isDestructive = isDestructive
@@ -406,14 +567,19 @@ struct LibraryActionTileButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .semibold))
+            HStack(alignment: .center, spacing: 6) {
+                NotchPixelIconView(
+                    icon: icon,
+                    color: isDestructive ? Color(red: 1.0, green: 0.74, blue: 0.74) : Color.white.opacity(0.86),
+                    size: 14
+                )
+                .frame(width: 14, height: 14)
                 if let subtitle, !subtitle.isEmpty {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(title)
                             .font(.system(size: 11, weight: .medium))
                             .lineLimit(1)
+                            .minimumScaleFactor(0.82)
 
                         Text(subtitle)
                             .font(.system(size: 9, weight: .medium))
@@ -425,6 +591,7 @@ struct LibraryActionTileButton: View {
                     Text(title)
                         .font(.system(size: 11, weight: .medium))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.82)
                 }
             }
             .foregroundStyle(isDestructive ? Color(red: 1.0, green: 0.74, blue: 0.74) : .white)
@@ -444,6 +611,7 @@ struct LibraryActionTileButton: View {
         .buttonStyle(.plain)
     }
 }
+
 
 private enum LibraryPreviewImageCache {
     static let images: NSCache<NSString, NSImage> = {

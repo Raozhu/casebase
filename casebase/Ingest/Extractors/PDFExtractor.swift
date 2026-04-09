@@ -7,6 +7,9 @@ final class PDFExtractor: Extractor {
     private let fileManager: FileManager
     private let previewRenderer: PDFPreviewRenderer
     private let minimumMeaningfulTextLength = 80
+    private let richTextThreshold = 240
+    private let aggressivePreviewFileSizeBytes: Int64 = 8_000_000
+    private let moderatePreviewFileSizeBytes: Int64 = 16_000_000
 
     init(
         fileManager: FileManager = .default,
@@ -42,8 +45,12 @@ final class PDFExtractor: Extractor {
 
         let extractedText = extractText(from: document)
         let normalizedText = extractedText?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let shouldRenderExtendedPreview = (normalizedText?.count ?? 0) < minimumMeaningfulTextLength
-        let requestedPreviewCount = shouldRenderExtendedPreview ? min(3, document.pageCount) : min(1, document.pageCount)
+        let fileSizeBytes = FileMetadataReader.fileSizeBytes(for: filePayload.fileURL, fileManager: fileManager) ?? 0
+        let requestedPreviewCount = preferredPreviewCount(
+            pageCount: document.pageCount,
+            extractedCharacterCount: normalizedText?.count ?? 0,
+            fileSizeBytes: fileSizeBytes
+        )
 
         var attachments: [NormalizedAttachment] = [
             NormalizedAttachment(
@@ -60,6 +67,7 @@ final class PDFExtractor: Extractor {
             fileManager: fileManager
         )
         metadata["pageCount"] = String(document.pageCount)
+        metadata["requestedPreviewCount"] = String(requestedPreviewCount)
         metadata["extractedCharacterCount"] = String(normalizedText?.count ?? 0)
         metadata["isTextBased"] = String((normalizedText?.isEmpty == false))
         metadata.merge(filePayload.contextMetadata) { _, new in new }
@@ -92,5 +100,31 @@ final class PDFExtractor: Extractor {
 
         guard !pageStrings.isEmpty else { return nil }
         return pageStrings.joined(separator: "\n\n")
+    }
+
+    private func preferredPreviewCount(
+        pageCount: Int,
+        extractedCharacterCount: Int,
+        fileSizeBytes: Int64
+    ) -> Int {
+        guard pageCount > 0 else { return 0 }
+
+        if extractedCharacterCount >= richTextThreshold {
+            return min(2, pageCount)
+        }
+
+        if extractedCharacterCount >= minimumMeaningfulTextLength {
+            return min(4, pageCount)
+        }
+
+        if fileSizeBytes > 0, fileSizeBytes <= aggressivePreviewFileSizeBytes {
+            return min(10, pageCount)
+        }
+
+        if fileSizeBytes > 0, fileSizeBytes <= moderatePreviewFileSizeBytes {
+            return min(6, pageCount)
+        }
+
+        return min(4, pageCount)
     }
 }

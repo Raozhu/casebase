@@ -2,6 +2,7 @@ import Foundation
 
 // Cross-module contracts owned by the Core layer. Feature modules should depend on these only.
 typealias ImportProgressHandler = @Sendable (ImportProgressUpdate) -> Void
+typealias AIThoughtHandler = @Sendable (String) -> Void
 
 protocol Extractor {
     var supportedSourceKinds: Set<ImportSourceKind> { get }
@@ -19,6 +20,7 @@ protocol KnowledgeStore {
 }
 
 protocol AIClient {
+    func analyze(content: NormalizedContent, thoughtHandler: AIThoughtHandler?) async throws -> AnalysisResult
     func analyze(content: NormalizedContent) async throws -> AnalysisResult
     func embed(text: String) async throws -> [Float]
     func answer(question: String, hits: [SearchHit], policy: AnswerPolicy) async throws -> AnswerResult
@@ -71,6 +73,12 @@ extension ImportCoordinator {
             skippedQuestionTitles: skippedQuestionTitles,
             progress: nil
         )
+    }
+}
+
+extension AIClient {
+    func analyze(content: NormalizedContent) async throws -> AnalysisResult {
+        try await analyze(content: content, thoughtHandler: nil)
     }
 }
 

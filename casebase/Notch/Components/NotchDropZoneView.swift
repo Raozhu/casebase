@@ -31,9 +31,7 @@ struct NotchDropZoneView: View {
                 .frame(height: 138)
                 .overlay {
                     VStack(spacing: 10) {
-                        Image(systemName: "shippingbox")
-                            .font(.system(size: 30, weight: .semibold))
-                            .foregroundStyle(.white)
+                        NotchPixelDisplayIcon(icon: .box, tone: .neutral, size: 24, glowOpacity: 0.1)
                             .offset(y: isFloating ? -4 : 4)
 
                         Text(CasebasePromptCatalog.ui.dropZoneCallToAction)

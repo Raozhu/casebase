@@ -8,6 +8,7 @@ struct AIServiceConfiguration: Hashable {
     let embeddingModel: String
     let transcriptionModel: String
     let requestTimeout: TimeInterval
+    let maxImportFileBytes: Int64
 }
 
 struct StorageConfiguration: Hashable {
@@ -46,6 +47,7 @@ struct CasebaseConfiguration: Hashable {
         let transcriptionModel = environment["CASEBASE_TRANSCRIPTION_MODEL"] ?? "gpt-4o-mini-transcribe"
         let timeout = Double(environment["CASEBASE_REQUEST_TIMEOUT_SECONDS"] ?? "") ?? 60
         let defaultResultLimit = Int(environment["CASEBASE_DEFAULT_RESULT_LIMIT"] ?? "") ?? 6
+        let maxImportFileBytes = Int64(environment["CASEBASE_MAX_IMPORT_FILE_BYTES"] ?? "") ?? 8_000_000
 
         let rootDirectory: URL
         if let customRoot = environment["CASEBASE_STORAGE_ROOT"], !customRoot.isEmpty {
@@ -65,7 +67,8 @@ struct CasebaseConfiguration: Hashable {
                 answerModel: answerModel,
                 embeddingModel: embeddingModel,
                 transcriptionModel: transcriptionModel,
-                requestTimeout: timeout
+                requestTimeout: timeout,
+                maxImportFileBytes: max(1_000_000, maxImportFileBytes)
             ),
             storage: StorageConfiguration(
                 rootDirectory: rootDirectory,

@@ -31,22 +31,25 @@ struct NotchSettingsDataResetConfirmationView: View {
             }
 
             HStack(spacing: 10) {
-                Button(action: onBack) {
-                    Text(CasebasePromptCatalog.ui.settingsClearDataCancelButtonTitle)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(NotchActionButtonStyle(prominent: false))
+                Spacer(minLength: 0)
+
+                LibraryActionTileButton(
+                    icon: .cross,
+                    title: CasebasePromptCatalog.ui.settingsClearDataCancelButtonTitle,
+                    action: onBack
+                )
+                .frame(width: LibraryActionTileButton.standardWidth)
                 .disabled(isClearing)
 
-                Button(action: onConfirm) {
-                    Text(
-                        isClearing
-                            ? CasebasePromptCatalog.ui.settingsClearDataProgressTitle
-                            : CasebasePromptCatalog.ui.settingsClearDataConfirmButtonTitle
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(NotchActionButtonStyle(prominent: true))
+                LibraryActionTileButton(
+                    icon: isClearing ? .hourglass : .trash,
+                    title: isClearing
+                        ? CasebasePromptCatalog.ui.settingsClearDataProgressTitle
+                        : CasebasePromptCatalog.ui.settingsClearDataConfirmButtonTitle,
+                    isDestructive: true,
+                    action: onConfirm
+                )
+                .frame(width: LibraryActionTileButton.standardWidth)
                 .disabled(isClearing)
             }
         }

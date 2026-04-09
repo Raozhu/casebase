@@ -17,7 +17,7 @@ struct NotchHoverActionsView: View {
                     title: CasebasePromptCatalog.ui.hoverActionAccessibilityTitle,
                     detail: CasebasePromptCatalog.ui.hoverActionAccessibilityDetail,
                     buttonTitle: CasebasePromptCatalog.ui.hoverActionAccessibilityButton,
-                    iconName: "exclamationmark.triangle.fill",
+                    icon: .warning,
                     action: onAuthorizeSelectionCapture
                 )
             }
@@ -27,26 +27,26 @@ struct NotchHoverActionsView: View {
                     title: CasebasePromptCatalog.ui.hoverActionScreenRecordingTitle,
                     detail: CasebasePromptCatalog.ui.hoverActionScreenRecordingDetail,
                     buttonTitle: CasebasePromptCatalog.ui.hoverActionScreenRecordingButton,
-                    iconName: "display.trianglebadge.exclamationmark",
+                    icon: .warning,
                     action: onAuthorizeScreenRecording
                 )
             }
 
             HStack(spacing: 14) {
                 HoverActionButton(
-                    systemImage: "gearshape.fill",
+                    icon: .gear,
                     helpText: CasebasePromptCatalog.ui.hoverActionSettingsTooltip,
                     action: onOpenSettings
                 )
 
                 HoverActionButton(
-                    systemImage: "square.stack.3d.up.fill",
+                    icon: .library,
                     helpText: CasebasePromptCatalog.ui.hoverActionLibraryTooltip,
                     action: onOpenLibrary
                 )
 
                 HoverActionButton(
-                    systemImage: "magnifyingglass",
+                    icon: .search,
                     helpText: CasebasePromptCatalog.ui.hoverActionSearchTooltip,
                     action: {}
                 )
@@ -70,18 +70,12 @@ struct NotchHoverActionsView: View {
         title: String,
         detail: String,
         buttonTitle: String,
-        iconName: String,
+        icon: NotchPixelIcon,
         action: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: iconName)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(red: 1.0, green: 0.83, blue: 0.34))
+            NotchPixelDisplayIcon(icon: icon, tone: .warning, size: 18, glowOpacity: 0.14)
                 .frame(width: 30, height: 30)
-                .background(
-                    Circle()
-                        .fill(Color(red: 0.35, green: 0.29, blue: 0.06))
-                )
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
@@ -117,24 +111,44 @@ struct NotchHoverActionsView: View {
 }
 
 private struct HoverActionButton: View {
-    let systemImage: String
+    let icon: NotchPixelIcon
     let helpText: String
     let action: () -> Void
 
+    private var label: String {
+        switch icon {
+        case .gear:
+            return CasebasePromptCatalog.language == .simplifiedChinese ? "设置" : "Settings"
+        case .library:
+            return CasebasePromptCatalog.language == .simplifiedChinese ? "数据" : "Library"
+        case .search:
+            return CasebasePromptCatalog.language == .simplifiedChinese ? "搜索" : "Search"
+        default:
+            return ""
+        }
+    }
+
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 52, height: 52)
-                .background(
+            VStack(spacing: 4) {
+                ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(Color.white.opacity(0.06))
-                )
-                .overlay {
+
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+
+                    NotchPixelDisplayIcon(icon: icon, tone: .neutral, size: 20, glowOpacity: 0.08)
                 }
+                .frame(width: 56, height: 48)
+
+                Text(label)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.7))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(width: 64)
         }
         .buttonStyle(.plain)
         .help(helpText)

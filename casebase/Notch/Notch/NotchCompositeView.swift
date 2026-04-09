@@ -155,9 +155,7 @@ struct NotchCompositeView: View {
 
     private var settingsButton: some View {
         Button(action: viewModel.openSettings) {
-            Image(systemName: "gearshape.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
+            NotchPixelDisplayIcon(icon: .gear, tone: .neutral, size: 14, glowOpacity: 0.08)
                 .frame(width: 32, height: 32)
                 .background(
                     Circle()

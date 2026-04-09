@@ -137,27 +137,27 @@ struct NotchSettingsView: View {
             Spacer(minLength: 0)
 
             LibraryActionTileButton(
-                systemImage: "trash",
+                icon: .trash,
                 title: CasebasePromptCatalog.ui.settingsClearActionTitle,
                 action: onOpenClearData
             )
-            .frame(width: 88)
+            .frame(width: LibraryActionTileButton.standardWidth)
             .disabled(!canClearData)
 
             LibraryActionTileButton(
-                systemImage: "arrow.clockwise",
+                icon: .refresh,
                 title: CasebasePromptCatalog.ui.settingsRestartActionTitle,
                 action: onRestart
             )
-            .frame(width: 88)
+            .frame(width: LibraryActionTileButton.standardWidth)
 
             LibraryActionTileButton(
-                systemImage: "power",
+                icon: .power,
                 title: CasebasePromptCatalog.ui.settingsQuitActionTitle,
                 isDestructive: true,
                 action: onQuit
             )
-            .frame(width: 88)
+            .frame(width: LibraryActionTileButton.standardWidth)
         }
     }
 
@@ -268,7 +268,11 @@ private struct HotKeyRecorderRow: View {
                 .buttonStyle(.plain)
 
                 Button(action: onReset) {
-                    Image(systemName: "arrow.counterclockwise")
+                    NotchPixelIconView(
+                        icon: .reset,
+                        color: Color.white.opacity(0.82),
+                        size: 10
+                    )
                 }
                 .buttonStyle(NotchShortcutResetIconButtonStyle())
             }

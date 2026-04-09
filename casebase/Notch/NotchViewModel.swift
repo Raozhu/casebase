@@ -4,6 +4,20 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
+enum NotchLibraryEntry: Identifiable, Equatable {
+    case task(NotchIngestTask)
+    case record(ImportRecord)
+
+    var id: String {
+        switch self {
+        case let .task(task):
+            return "task-\(task.id.uuidString)"
+        case let .record(record):
+            return "record-\(record.id.uuidString)"
+        }
+    }
+}
+
 @MainActor
 final class NotchViewModel: ObservableObject {
     enum Status: Equatable {
@@ -42,8 +56,8 @@ final class NotchViewModel: ObservableObject {
     let taskPanelMaxPanelHeight: CGFloat = 520
     let taskRailSpacing: CGFloat = 8
     let taskRailVerticalSpacing: CGFloat = 8
+    let taskRailResultDurationNs: UInt64 = 2_000_000_000
     let intakeFeedbackDurationNs: UInt64 = 520_000_000
-    let finalSuccessDurationNs: UInt64 = 1_450_000_000
     let maxClarificationRounds = 3
 
     @Published private(set) var surfaceState: CasebaseSurfaceState = .idle
@@ -53,6 +67,7 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var latestAnswer: AnswerResult?
     @Published private(set) var libraryRecords: [ImportRecord] = []
     @Published private(set) var selectedLibraryRecord: ImportRecord?
+    @Published private(set) var selectedLibraryTaskID: UUID?
     @Published var draftQuestion = ""
     @Published private(set) var errorMessage: String?
     @Published private(set) var libraryErrorMessage: String?
@@ -61,7 +76,11 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var isLibraryLoading = false
     @Published private(set) var isDeletingLibraryRecord = false
     @Published private(set) var intakeFeedbackMessage: String?
-    @Published private(set) var ingestTasks: [NotchIngestTask] = []
+    @Published private(set) var ingestTasks: [NotchIngestTask] = [] {
+        didSet {
+            refreshRecognizingPlaceholderState()
+        }
+    }
     @Published private(set) var feedbackScale: CGFloat = 1
     @Published private(set) var captureSinkProgress: CGFloat = 0
     @Published private(set) var selectionCaptureAuthorized = true
@@ -70,6 +89,7 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var isClearingStoredData = false
     @Published private(set) var selectedFailedTaskID: UUID?
     @Published private(set) var suppressHoverUntilMouseExit = false
+    @Published private(set) var recognizingPlaceholderText = ""
 
     @Published private(set) var status: Status = .collapsed
     @Published var displayCutoutRect: CGRect
@@ -91,12 +111,18 @@ final class NotchViewModel: ObservableObject {
     private var restoredSurfaceStateBeforeLibrary: CasebaseSurfaceState = .hoverActions
     private var restoredStatusBeforeLibrary: Status = .expanded
     private var restoredPinnedStateBeforeLibrary = false
+    private var restoredSurfaceStateBeforeTaskPanel: CasebaseSurfaceState = .idle
+    private var restoredStatusBeforeTaskPanel: Status = .collapsed
+    private var restoredPinnedStateBeforeTaskPanel = false
     private var lastSubmittedQuestion: String?
     private var lastFailedAction: FailedAction?
     private var queueProcessorTask: Task<Void, Never>?
     private var intakeFeedbackTask: Task<Void, Never>?
     private var finalSuccessTask: Task<Void, Never>?
+    private var taskRailResultTask: Task<Void, Never>?
+    private var recognizingPlaceholderTask: Task<Void, Never>?
     private var finalSuccessVisible = false
+    private var transientResultRailVisible = false
     private var measuredExpandedContentHeights: [CasebaseSurfaceState: CGFloat] = [:]
     private static let chineseLibraryTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -280,19 +306,8 @@ final class NotchViewModel: ObservableObject {
         if !failedTasks.isEmpty || (surfaceState == .error && errorMessage != nil) {
             return .error
         }
-        if showsTaskRail {
-            switch taskRailState {
-            case .preparing:
-                return .preparing
-            case .recognizing:
-                return .recognizing
-            case .storing:
-                return .storing
-            case .needsInput:
-                return .needsInput
-            case .success:
-                return .success
-            }
+        if let taskIndicator = currentCollapsedTaskIndicator {
+            return taskIndicator
         }
         if hasMissingShortcutPermissions {
             return .warning
@@ -314,6 +329,15 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    var libraryEntries: [NotchLibraryEntry] {
+        pendingLibraryTasks.map(NotchLibraryEntry.task) + libraryRecords.map(NotchLibraryEntry.record)
+    }
+
+    var selectedLibraryTask: NotchIngestTask? {
+        guard let selectedLibraryTaskID else { return nil }
+        return ingestTasks.first(where: { $0.id == selectedLibraryTaskID })
+    }
+
     var firstNeedsInputTask: NotchIngestTask? {
         ingestTasks.first { task in
             if case .needsInput = task.status {
@@ -330,7 +354,16 @@ final class NotchViewModel: ObservableObject {
         guard surfaceState != .dropTarget, surfaceState != .intakeFeedback else {
             return false
         }
-        return (unfinishedTaskCount > 0 || finalSuccessVisible) && failedTasks.isEmpty && errorMessage == nil
+        guard (unfinishedTaskCount > 0 || finalSuccessVisible) && failedTasks.isEmpty && errorMessage == nil else {
+            return false
+        }
+
+        switch taskRailState {
+        case .preparing, .recognizing, .storing:
+            return true
+        case .needsInput, .success:
+            return transientResultRailVisible
+        }
     }
 
     private var hasSuccessfulTasks: Bool {
@@ -391,7 +424,10 @@ final class NotchViewModel: ObservableObject {
             return CasebasePromptCatalog.ui.taskRecognizingDetail
         }
 
-        if let thinkingText = condensedThinkingText(for: railTask), !thinkingText.isEmpty {
+        if railTask.status == .recognizing,
+           let thinkingText = condensedThinkingText(for: railTask),
+           !thinkingText.isEmpty
+        {
             return thinkingText
         }
 
@@ -399,7 +435,9 @@ final class NotchViewModel: ObservableObject {
         case .queued, .preparing:
             return CasebasePromptCatalog.ui.taskPreparingDetail
         case .recognizing:
-            return localizedPreviewLabel(chinese: "正在思考中…", english: "Thinking…")
+            return recognizingPlaceholderText.isEmpty
+                ? localizedPreviewLabel(chinese: "正在思考中…", english: "Thinking…")
+                : recognizingPlaceholderText
         case .storing:
             return CasebasePromptCatalog.ui.taskStoringDetail
         case .needsInput:
@@ -413,10 +451,10 @@ final class NotchViewModel: ObservableObject {
 
     var taskRailShowsShimmer: Bool {
         switch taskRailState {
-        case .success:
-            return false
-        case .preparing, .recognizing, .storing, .needsInput:
+        case .recognizing:
             return true
+        case .preparing, .storing, .needsInput, .success:
+            return false
         }
     }
 
@@ -443,23 +481,42 @@ final class NotchViewModel: ObservableObject {
         return ingestTasks.first(where: { $0.status == .succeeded })
     }
 
-    private func condensedThinkingText(for task: NotchIngestTask) -> String? {
-        let rawText: String?
-
-        if let thinkingText = task.thinkingText, !thinkingText.isEmpty {
-            rawText = thinkingText
-        } else if task.status == .needsInput,
-                  let uncertainty = task.record?.clarificationRequest?.uncertaintySummary,
-                  !uncertainty.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        {
-            rawText = uncertainty
-        } else {
-            rawText = detailText(for: task)
+    private var currentCollapsedTaskIndicator: CollapsedIndicator? {
+        if finalSuccessVisible, unfinishedTaskCount == 0 {
+            return .success
         }
 
-        guard let rawText else { return nil }
+        if firstNeedsInputTask != nil {
+            return .needsInput
+        }
+
+        if ingestTasks.contains(where: { $0.status == .recognizing }) {
+            return .recognizing
+        }
+
+        if ingestTasks.contains(where: { $0.status == .storing }) {
+            return .storing
+        }
+
+        if ingestTasks.contains(where: { $0.status == .preparing || $0.status == .queued }) {
+            return .preparing
+        }
+
+        return nil
+    }
+
+    private func condensedThinkingText(for task: NotchIngestTask) -> String? {
+        guard task.status == .recognizing,
+              let rawText = task.thinkingText,
+              !rawText.isEmpty
+        else {
+            return nil
+        }
+
         let normalized = rawText
+            .replacingOccurrences(of: #"[*`_>#-]+"#, with: " ", options: .regularExpression)
             .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !normalized.isEmpty else { return nil }
@@ -468,6 +525,85 @@ final class NotchViewModel: ObservableObject {
             return normalized
         }
         return String(normalized.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+    }
+
+    private var needsRecognizingPlaceholder: Bool {
+        guard let railTask = currentRailTask,
+              railTask.status == .recognizing
+        else {
+            return false
+        }
+        return condensedThinkingText(for: railTask) == nil
+    }
+
+    private func refreshRecognizingPlaceholderState() {
+        guard needsRecognizingPlaceholder else {
+            stopRecognizingPlaceholder(resetText: true)
+            return
+        }
+
+        if recognizingPlaceholderText.isEmpty {
+            recognizingPlaceholderText = nextRecognizingPlaceholder(excluding: nil)
+        }
+
+        guard recognizingPlaceholderTask == nil else { return }
+        recognizingPlaceholderTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                let delay = UInt64.random(in: 1_000_000_000 ... 3_000_000_000)
+                try? await Task.sleep(nanoseconds: delay)
+
+                guard !Task.isCancelled else { return }
+                guard self.needsRecognizingPlaceholder else {
+                    self.stopRecognizingPlaceholder(resetText: true)
+                    return
+                }
+
+                self.recognizingPlaceholderText = self.nextRecognizingPlaceholder(
+                    excluding: self.recognizingPlaceholderText
+                )
+            }
+        }
+    }
+
+    private func stopRecognizingPlaceholder(resetText: Bool) {
+        recognizingPlaceholderTask?.cancel()
+        recognizingPlaceholderTask = nil
+        if resetText {
+            recognizingPlaceholderText = ""
+        }
+    }
+
+    private func nextRecognizingPlaceholder(excluding current: String?) -> String {
+        let candidates = recognizingPlaceholderPool.filter { $0 != current }
+        return candidates.randomElement() ?? recognizingPlaceholderPool.first ?? localizedPreviewLabel(
+            chinese: "正在思考中…",
+            english: "Thinking…"
+        )
+    }
+
+    private var recognizingPlaceholderPool: [String] {
+        switch CasebasePromptCatalog.language {
+        case .simplifiedChinese:
+            return [
+                "梳理线索中…", "比对上下文中…", "归拢重点中…", "提炼事实中…", "抽取字段中…",
+                "整合页面中…", "拼接片段中…", "校对细节中…", "收束重点中…", "捕捉意图中…",
+                "对齐语义中…", "拆解结构中…", "映射关系中…", "归纳主题中…", "检视缺口中…",
+                "压缩噪声中…", "筛出重点中…", "标记实体中…", "串联证据中…", "整理脉络中…",
+                "核对来源中…", "合并信息中…", "补齐上下文中…", "判断用途中…", "锚定标题中…",
+                "生成摘要中…", "构建索引中…", "推敲表达中…", "定位关键信息中…", "准备入库中…"
+            ]
+        case .english:
+            return [
+                "Tracing clues…", "Comparing context…", "Gathering signals…", "Extracting facts…", "Pulling fields…",
+                "Blending fragments…", "Checking details…", "Condensing noise…", "Finding intent…", "Aligning meaning…",
+                "Parsing structure…", "Mapping relations…", "Spotting gaps…", "Tagging entities…", "Linking evidence…",
+                "Organizing threads…", "Verifying sources…", "Merging context…", "Choosing labels…", "Shaping summary…",
+                "Building index…", "Narrowing focus…", "Weighing hints…", "Reading between lines…", "Assembling context…",
+                "Sorting priorities…", "Refining meaning…", "Grounding facts…", "Preparing record…", "Getting it ready…"
+            ]
+        }
     }
 
     func updateScreenFrame(_ frame: CGRect) {
@@ -548,6 +684,7 @@ final class NotchViewModel: ObservableObject {
         guard !providers.isEmpty else { return false }
 
         suppressHoverUntilMouseExit = true
+        collapseAfterDropSubmission()
         let joiningExistingQueue = unfinishedTaskCount > 0 || finalSuccessVisible
         presentIntakeFeedback(message: joiningExistingQueue
             ? CasebasePromptCatalog.ui.intakeQueuedFeedback
@@ -557,7 +694,7 @@ final class NotchViewModel: ObservableObject {
             guard let self else { return }
             do {
                 let payloads = try await NotchDropPayloadLoader.loadPayloads(from: providers)
-                await self.enqueue(payloads)
+                await self.enqueue(payloads, prefersAutomaticExpansion: false)
             } catch {
                 self.presentImportError(error)
             }
@@ -779,6 +916,24 @@ final class NotchViewModel: ObservableObject {
             return
         }
 
+        if surfaceState == .library || surfaceState == .libraryDetail {
+            isDismissed = false
+            isPinnedExpanded = true
+            status = .expanded
+
+            if surfaceState == .libraryDetail,
+               selectedLibraryRecord == nil,
+               selectedLibraryTaskID == nil {
+                surfaceState = .library
+            }
+
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.reloadLibraryRecords(using: libraryService)
+            }
+            return
+        }
+
         restoredSurfaceStateBeforeLibrary = surfaceState
         restoredStatusBeforeLibrary = status
         restoredPinnedStateBeforeLibrary = isPinnedExpanded
@@ -786,6 +941,7 @@ final class NotchViewModel: ObservableObject {
         isDismissed = false
         isPinnedExpanded = true
         selectedLibraryRecord = nil
+        selectedLibraryTaskID = nil
         libraryErrorMessage = nil
         errorMessage = nil
         surfaceState = .library
@@ -801,6 +957,7 @@ final class NotchViewModel: ObservableObject {
         guard surfaceState == .library || surfaceState == .libraryDetail else { return }
         isDismissed = false
         selectedLibraryRecord = nil
+        selectedLibraryTaskID = nil
         libraryErrorMessage = nil
         surfaceState = restoredSurfaceStateBeforeLibrary
         status = restoredStatusBeforeLibrary
@@ -817,6 +974,33 @@ final class NotchViewModel: ObservableObject {
     func openLibraryRecord(_ recordID: UUID) {
         guard let record = libraryRecords.first(where: { $0.id == recordID }) else { return }
         selectedLibraryRecord = record
+        selectedLibraryTaskID = nil
+        libraryErrorMessage = nil
+        isDismissed = false
+        isPinnedExpanded = true
+        surfaceState = .libraryDetail
+        status = .expanded
+    }
+
+    func openLibraryTask(_ taskID: UUID) {
+        guard let task = ingestTasks.first(where: { $0.id == taskID }) else { return }
+
+        if case .needsInput = task.status {
+            selectedLibraryTaskID = nil
+            selectedLibraryRecord = nil
+            openTaskPanel()
+            return
+        }
+
+        guard task.isPending else {
+            if let record = task.record {
+                openLibraryRecord(record.id)
+            }
+            return
+        }
+
+        selectedLibraryTaskID = taskID
+        selectedLibraryRecord = nil
         libraryErrorMessage = nil
         isDismissed = false
         isPinnedExpanded = true
@@ -827,6 +1011,7 @@ final class NotchViewModel: ObservableObject {
     func closeLibraryDetail() {
         guard surfaceState == .libraryDetail else { return }
         selectedLibraryRecord = nil
+        selectedLibraryTaskID = nil
         libraryErrorMessage = nil
         isDismissed = false
         isPinnedExpanded = true
@@ -964,19 +1149,20 @@ final class NotchViewModel: ObservableObject {
     }
 
     func openTaskPanel() {
-        guard !ingestTasks.isEmpty else { return }
+        guard firstNeedsInputTask != nil else {
+            openLibrary()
+            return
+        }
         intakeFeedbackTask?.cancel()
         isDismissed = false
+        storeTaskPanelRestoreState()
         surfaceState = .taskPanel
         isPinnedExpanded = true
         status = .expanded
     }
 
     func closeTaskPanel() {
-        surfaceState = .idle
-        isPinnedExpanded = false
-        isDismissed = false
-        status = .collapsed
+        restoreAfterTaskPanel()
 
         if unfinishedTaskCount == 0, !finalSuccessVisible {
             pruneCompletedTasks()
@@ -985,10 +1171,7 @@ final class NotchViewModel: ObservableObject {
 
     func backToHomeFromTaskPanel() {
         guard surfaceState == .taskPanel else { return }
-        isDismissed = false
-        isPinnedExpanded = true
-        surfaceState = .hoverActions
-        status = .expanded
+        restoreAfterTaskPanel()
     }
 
     func openTaskRecord(_ taskID: UUID) {
@@ -1165,6 +1348,7 @@ final class NotchViewModel: ObservableObject {
 
         updateTask(taskID) { pendingTask in
             pendingTask.status = .preparing
+            pendingTask.thinkingText = nil
             pendingTask.clarificationValidationMessage = nil
             pendingTask.updatedAt = Date()
         }
@@ -1205,15 +1389,19 @@ final class NotchViewModel: ObservableObject {
         queueProcessorTask?.cancel()
         intakeFeedbackTask?.cancel()
         finalSuccessTask?.cancel()
+        taskRailResultTask?.cancel()
         queueProcessorTask = nil
         intakeFeedbackTask = nil
         finalSuccessTask = nil
+        taskRailResultTask = nil
         finalSuccessVisible = false
+        transientResultRailVisible = false
 
         activeRecord = nil
         latestAnswer = nil
         libraryRecords = []
         selectedLibraryRecord = nil
+        selectedLibraryTaskID = nil
         draftQuestion = ""
         errorMessage = nil
         libraryErrorMessage = nil
@@ -1230,6 +1418,9 @@ final class NotchViewModel: ObservableObject {
         restoredSurfaceStateBeforeSettings = .idle
         restoredStatusBeforeSettings = .collapsed
         restoredPinnedStateBeforeSettings = false
+        restoredSurfaceStateBeforeTaskPanel = .idle
+        restoredStatusBeforeTaskPanel = .collapsed
+        restoredPinnedStateBeforeTaskPanel = false
         ingestTasks = []
         feedbackScale = 1
         isDismissed = false
@@ -1252,7 +1443,26 @@ final class NotchViewModel: ObservableObject {
     }
 
     func libraryKindLabel(for record: ImportRecord) -> String {
-        switch inferredPreviewKind(for: record) {
+        libraryKindLabel(forPreviewKind: inferredPreviewKind(for: record))
+    }
+
+    func libraryKindLabel(for sourceKind: ImportSourceKind) -> String {
+        switch sourceKind {
+        case .image:
+            return localizedPreviewLabel(chinese: "图片", english: "Image")
+        case .pdf:
+            return "PDF"
+        case .text:
+            return localizedPreviewLabel(chinese: "文本", english: "Text")
+        case .audio:
+            return localizedPreviewLabel(chinese: "音频", english: "Audio")
+        case .binary:
+            return localizedPreviewLabel(chinese: "文件", english: "File")
+        }
+    }
+
+    private func libraryKindLabel(forPreviewKind previewKind: LibraryPreviewKind) -> String {
+        switch previewKind {
         case .image:
             return localizedPreviewLabel(chinese: "图片", english: "Image")
         case .pdf:
@@ -1269,7 +1479,11 @@ final class NotchViewModel: ObservableObject {
     }
 
     func libraryKindDetail(for record: ImportRecord) -> String {
-        switch inferredPreviewKind(for: record) {
+        libraryKindDetail(forPreviewKind: inferredPreviewKind(for: record))
+    }
+
+    private func libraryKindDetail(forPreviewKind previewKind: LibraryPreviewKind) -> String {
+        switch previewKind {
         case .image:
             return localizedPreviewLabel(chinese: "图片缩略图", english: "Image preview")
         case .pdf:
@@ -1286,7 +1500,26 @@ final class NotchViewModel: ObservableObject {
     }
 
     func libraryPreviewSystemImage(for record: ImportRecord) -> String {
-        switch inferredPreviewKind(for: record) {
+        libraryPreviewSystemImage(forPreviewKind: inferredPreviewKind(for: record))
+    }
+
+    func libraryPreviewSystemImage(for sourceKind: ImportSourceKind) -> String {
+        switch sourceKind {
+        case .image:
+            return "photo"
+        case .pdf:
+            return "doc.richtext"
+        case .text:
+            return "text.alignleft"
+        case .audio:
+            return "waveform"
+        case .binary:
+            return "doc"
+        }
+    }
+
+    private func libraryPreviewSystemImage(forPreviewKind previewKind: LibraryPreviewKind) -> String {
+        switch previewKind {
         case .image:
             return "photo"
         case .pdf:
@@ -1377,6 +1610,10 @@ final class NotchViewModel: ObservableObject {
     }
 
     private func enqueue(_ payloads: [ImportPayload]) async {
+        await enqueue(payloads, prefersAutomaticExpansion: true)
+    }
+
+    private func enqueue(_ payloads: [ImportPayload], prefersAutomaticExpansion: Bool) async {
         let now = Date()
         let newTasks = payloads.map { payload in
             NotchIngestTask(
@@ -1384,6 +1621,7 @@ final class NotchViewModel: ObservableObject {
                 sourceKind: payload.sourceKindHint ?? .binary,
                 title: payload.displayName,
                 status: .queued,
+                prefersAutomaticExpansion: prefersAutomaticExpansion,
                 createdAt: now,
                 updatedAt: now
             )
@@ -1391,6 +1629,8 @@ final class NotchViewModel: ObservableObject {
 
         ingestTasks.append(contentsOf: newTasks)
         finalSuccessVisible = false
+        transientResultRailVisible = false
+        taskRailResultTask?.cancel()
         startQueueProcessorIfNeeded()
     }
 
@@ -1453,13 +1693,15 @@ final class NotchViewModel: ObservableObject {
             switch progress.phase {
             case .preparing:
                 task.status = .preparing
+                task.thinkingText = nil
             case .recognizing:
                 task.status = .recognizing
+                if let thoughtText = progress.thoughtText, !thoughtText.isEmpty {
+                    task.thinkingText = thoughtText
+                }
             case .storing:
                 task.status = .storing
-            }
-            if let thoughtText = progress.thoughtText, !thoughtText.isEmpty {
-                task.thinkingText = thoughtText
+                task.thinkingText = nil
             }
             task.updatedAt = Date()
         }
@@ -1475,6 +1717,7 @@ final class NotchViewModel: ObservableObject {
         updateTask(taskID) { task in
             task.title = record.title
             task.record = record
+            task.thinkingText = nil
             task.supplementDraft = record.userSupplement ?? ""
             task.clarificationAnswers = [:]
             task.skippedClarificationQuestionIDs = []
@@ -1485,6 +1728,7 @@ final class NotchViewModel: ObservableObject {
         }
 
         if needsClarification {
+            showTransientResultRail()
             presentClarificationPanel()
         }
 
@@ -1502,13 +1746,6 @@ final class NotchViewModel: ObservableObject {
                 task.updatedAt = Date()
             }
         }
-
-        if record.clarificationRoundCount >= maxClarificationRounds,
-           record.needsReview,
-           record.clarificationRequest == nil
-        {
-            noticeMessage = CasebasePromptCatalog.ui.taskClarificationMaxRoundsNotice
-        }
     }
 
     private func requiresSupplement(for record: ImportRecord) -> Bool {
@@ -1520,6 +1757,7 @@ final class NotchViewModel: ObservableObject {
     private func markTask(_ taskID: UUID, failedWith message: String) {
         updateTask(taskID) { task in
             task.status = .failed(message)
+            task.thinkingText = nil
             task.updatedAt = Date()
         }
         if selectedFailedTaskID == nil {
@@ -1532,6 +1770,7 @@ final class NotchViewModel: ObservableObject {
         intakeFeedbackMessage = nil
         isDropTargeted = false
         isDismissed = false
+        storeTaskPanelRestoreState()
         isPinnedExpanded = true
         surfaceState = .taskPanel
         status = .expanded
@@ -1546,7 +1785,7 @@ final class NotchViewModel: ObservableObject {
             : CasebasePromptCatalog.ui.intakeDigestingFeedback)
 
         Task { [weak self] in
-            await self?.enqueue([failedTask.payload])
+            await self?.enqueue([failedTask.payload], prefersAutomaticExpansion: failedTask.prefersAutomaticExpansion)
         }
     }
 
@@ -1573,6 +1812,36 @@ final class NotchViewModel: ObservableObject {
     private func updateTask(_ taskID: UUID, update: (inout NotchIngestTask) -> Void) {
         guard let index = ingestTasks.firstIndex(where: { $0.id == taskID }) else { return }
         update(&ingestTasks[index])
+    }
+
+    private var pendingLibraryTasks: [NotchIngestTask] {
+        taskPanelTasks.filter { task in
+            switch task.status {
+            case .queued, .preparing, .recognizing, .storing, .needsInput:
+                return true
+            case .succeeded, .failed:
+                return false
+            }
+        }
+    }
+
+    private func storeTaskPanelRestoreState() {
+        guard surfaceState != .taskPanel else { return }
+        restoredSurfaceStateBeforeTaskPanel = surfaceState
+        restoredStatusBeforeTaskPanel = status
+        restoredPinnedStateBeforeTaskPanel = isPinnedExpanded
+    }
+
+    private func restoreAfterTaskPanel() {
+        isDismissed = false
+        surfaceState = restoredSurfaceStateBeforeTaskPanel
+        status = restoredStatusBeforeTaskPanel
+        isPinnedExpanded = restoredPinnedStateBeforeTaskPanel
+
+        if surfaceState == .hoverActions {
+            status = .expanded
+            isPinnedExpanded = true
+        }
     }
 
     private func removeLibraryRecord(id: UUID) {
@@ -1714,10 +1983,12 @@ final class NotchViewModel: ObservableObject {
         errorMessage = nil
         noticeMessage = nil
         intakeFeedbackMessage = message
-        isDropTargeted = false
         pulseFeedback()
 
-        if surfaceState == .dropTarget || surfaceState == .intakeFeedback {
+        if suppressHoverUntilMouseExit {
+            collapseAfterDropSubmission()
+        } else if surfaceState == .dropTarget || surfaceState == .intakeFeedback {
+            isDropTargeted = false
             isPinnedExpanded = false
             isDismissed = false
             surfaceState = .idle
@@ -1744,6 +2015,15 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    private func collapseAfterDropSubmission() {
+        isDropTargeted = false
+        isPinnedExpanded = false
+        isDismissed = false
+        restoredSurfaceState = .idle
+        surfaceState = .idle
+        status = .collapsed
+    }
+
     private func animateCaptureSink() {
         captureSinkProgress = 0
 
@@ -1761,16 +2041,30 @@ final class NotchViewModel: ObservableObject {
 
     private func showFinalSuccessRail() {
         finalSuccessTask?.cancel()
+        taskRailResultTask?.cancel()
         finalSuccessVisible = true
+        transientResultRailVisible = true
 
         finalSuccessTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            try? await Task.sleep(nanoseconds: self.finalSuccessDurationNs)
+            try? await Task.sleep(nanoseconds: self.taskRailResultDurationNs)
+            self.transientResultRailVisible = false
             self.finalSuccessVisible = false
 
             if self.surfaceState != .taskPanel {
                 self.pruneCompletedTasks()
             }
+        }
+    }
+
+    private func showTransientResultRail() {
+        taskRailResultTask?.cancel()
+        transientResultRailVisible = true
+
+        taskRailResultTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: self.taskRailResultDurationNs)
+            self.transientResultRailVisible = false
         }
     }
 

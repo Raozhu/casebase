@@ -13,6 +13,7 @@ final class CompositeExtractor: Extractor {
     private let imageExtractor: ImageExtractor
     private let pdfExtractor: PDFExtractor
     private let audioExtractor: AudioExtractor
+    private let officeExtractor: OfficeExtractor
     private let fallbackExtractor: FallbackExtractor
 
     init(
@@ -22,6 +23,7 @@ final class CompositeExtractor: Extractor {
         transcriber: AudioTranscriber? = nil
     ) {
         let previewWriter = TemporaryPreviewWriter(fileManager: fileManager)
+        let quickLookPreviewRenderer = QuickLookPreviewRenderer(previewWriter: previewWriter)
         textExtractor = TextExtractor(fileManager: fileManager)
         imageExtractor = ImageExtractor(
             fileManager: fileManager,
@@ -36,6 +38,10 @@ final class CompositeExtractor: Extractor {
             fileManager: fileManager,
             transcriber: transcriber,
             session: session
+        )
+        officeExtractor = OfficeExtractor(
+            fileManager: fileManager,
+            previewRenderer: quickLookPreviewRenderer
         )
         fallbackExtractor = FallbackExtractor(fileManager: fileManager)
     }
@@ -55,6 +61,10 @@ final class CompositeExtractor: Extractor {
     }
 
     private func extractorForPayload(_ payload: ImportPayload) -> Extractor {
+        if officeExtractor.canExtract(payload) {
+            return officeExtractor
+        }
+
         let resolution = FileTypeResolver.resolve(payload)
 
         switch resolution.sourceKind {

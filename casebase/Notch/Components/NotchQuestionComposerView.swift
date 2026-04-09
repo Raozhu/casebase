@@ -68,7 +68,11 @@ struct NotchBackIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "chevron.left")
+            NotchPixelIconView(
+                icon: .chevronLeft,
+                color: Color.white.opacity(0.84),
+                size: 13
+            )
         }
         .buttonStyle(NotchChromeIconButtonStyle())
     }

@@ -94,24 +94,21 @@ struct NotchTaskPanelView: View {
                             .foregroundStyle(Color(red: 1.0, green: 0.58, blue: 0.58))
                     }
 
-                    HStack(alignment: .center, spacing: 10) {
-                        ClarificationFooterButton(
+                    HStack(alignment: .center, spacing: 8) {
+                        Spacer(minLength: 0)
+
+                        LibraryActionTileButton(
+                            icon: .skip,
                             title: CasebasePromptCatalog.ui.taskSupplementDismissButton,
-                            systemImage: "forward.end",
-                            role: .secondary,
                             action: { viewModel.skipClarificationQuestion(task.id) }
                         )
-                        .frame(maxWidth: .infinity)
+                        .frame(width: LibraryActionTileButton.standardWidth)
 
-                        ClarificationFooterButton(
-                            title: viewModel.isLastClarificationQuestion(for: task.id)
-                                ? CasebasePromptCatalog.ui.taskSupplementContinueButton
-                                : CasebasePromptCatalog.ui.taskClarificationNextButton,
-                            systemImage: viewModel.isLastClarificationQuestion(for: task.id)
-                                ? "sparkles"
-                                : "arrow.right",
-                            progressText: clarificationQuestionProgressText(for: task.id),
-                            role: .primary,
+                        LibraryActionTileButton(
+                            icon: viewModel.isLastClarificationQuestion(for: task.id)
+                                ? .check
+                                : .arrowRight,
+                            title: clarificationPrimaryActionTitle(for: task.id),
                             action: {
                                 if viewModel.isLastClarificationQuestion(for: task.id) {
                                     viewModel.submitClarification(task.id)
@@ -120,7 +117,7 @@ struct NotchTaskPanelView: View {
                                 }
                             }
                         )
-                        .frame(maxWidth: .infinity)
+                        .frame(width: LibraryActionTileButton.standardWidth)
                     }
                 }
             }
@@ -180,6 +177,17 @@ struct NotchTaskPanelView: View {
     private func clarificationQuestionProgressText(for taskID: UUID) -> String? {
         guard let progress = viewModel.clarificationQuestionProgress(for: taskID) else { return nil }
         return "\(progress.current)/\(progress.total)"
+    }
+
+    private func clarificationPrimaryActionTitle(for taskID: UUID) -> String {
+        let baseTitle = viewModel.isLastClarificationQuestion(for: taskID)
+            ? CasebasePromptCatalog.ui.taskSupplementContinueButton
+            : CasebasePromptCatalog.ui.taskClarificationNextButton
+
+        guard let progressText = clarificationQuestionProgressText(for: taskID) else {
+            return baseTitle
+        }
+        return "\(baseTitle) \(progressText)"
     }
 
     private func taskRow(_ task: NotchIngestTask) -> some View {
@@ -278,10 +286,12 @@ private struct ClarificationQuestionOptionsSection: View {
                         Spacer(minLength: 0)
 
                         if normalizedAnswer == option {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(Color.white.opacity(0.92))
-                                .transition(.scale.combined(with: .opacity))
+                            NotchPixelIconView(
+                                icon: .check,
+                                color: Color.white.opacity(0.92),
+                                size: 10
+                            )
+                            .transition(.scale.combined(with: .opacity))
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -376,114 +386,19 @@ private struct ClarificationOptionRowButtonStyle: ButtonStyle {
     }
 }
 
-private struct ClarificationFooterButton: View {
-    enum Role {
-        case secondary
-        case primary
-    }
-
-    let title: String
-    let systemImage: String
-    let progressText: String?
-    let role: Role
-    let action: () -> Void
-
-    init(
-        title: String,
-        systemImage: String,
-        progressText: String? = nil,
-        role: Role,
-        action: @escaping () -> Void
-    ) {
-        self.title = title
-        self.systemImage = systemImage
-        self.progressText = progressText
-        self.role = role
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 12)
-
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-
-                Spacer(minLength: 0)
-
-                if let progressText, role == .primary {
-                    Text(progressText)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.62))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Color.black.opacity(0.08))
-                        )
-                }
-            }
-            .foregroundStyle(role == .primary ? Color.black : Color.white.opacity(0.82))
-            .frame(maxWidth: .infinity)
-            .frame(height: 36)
-            .background(background)
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(borderColor, lineWidth: 1)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var background: some ShapeStyle {
-        switch role {
-        case .secondary:
-            return AnyShapeStyle(Color.white.opacity(0.045))
-        case .primary:
-            return AnyShapeStyle(Color.white)
-        }
-    }
-
-    private var borderColor: Color {
-        switch role {
-        case .secondary:
-            return Color.white.opacity(0.06)
-        case .primary:
-            return Color.white.opacity(0.12)
-        }
-    }
-}
-
 private struct TaskRowIcon: View {
     let sourceKind: ImportSourceKind
 
     var body: some View {
-        Image(systemName: symbolName)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(.white)
+        NotchPixelIconView(
+            icon: notchPixelIcon(for: sourceKind),
+            color: notchPixelTone(for: sourceKind).glyphColor,
+            size: 15
+        )
             .frame(width: 34, height: 34)
             .background(
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .fill(Color.white.opacity(0.08))
             )
-    }
-
-    private var symbolName: String {
-        switch sourceKind {
-        case .image:
-            return "photo.fill"
-        case .text:
-            return "doc.text.fill"
-        case .pdf:
-            return "doc.richtext.fill"
-        case .audio:
-            return "waveform"
-        case .binary:
-            return "doc.fill"
-        }
     }
 }
