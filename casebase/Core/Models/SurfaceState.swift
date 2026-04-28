@@ -13,6 +13,7 @@ enum CasebaseSurfaceState: String, Codable, Hashable {
     case taskPanel
     case ingesting
     case savedPreview
+    case search
     case answering
     case answerReady
     case error
@@ -23,7 +24,7 @@ extension CasebaseSurfaceState {
         switch self {
         case .idle, .hoverActions:
             return false
-        case .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .answering, .answerReady, .error:
+        case .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .search, .answering, .answerReady, .error:
             return true
         }
     }
@@ -32,7 +33,7 @@ extension CasebaseSurfaceState {
         switch self {
         case .idle:
             return false
-        case .hoverActions, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .answering, .answerReady, .error:
+        case .hoverActions, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .search, .answering, .answerReady, .error:
             return true
         }
     }

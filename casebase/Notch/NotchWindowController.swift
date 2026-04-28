@@ -10,6 +10,7 @@ final class NotchWindowController: NSWindowController {
     private var localMouseMonitor: Any?
     private var dataResetObserver: Any?
     private var recordDeletedObserver: Any?
+    private var recordsReorganizedObserver: Any?
     private var appDidBecomeActiveObserver: Any?
     private let selectionAnimationController: SelectionCaptureAnimationWindowController
 
@@ -57,6 +58,7 @@ final class NotchWindowController: NSWindowController {
         installMouseDismissMonitors()
         installDataResetObserver()
         installRecordDeletedObserver()
+        installRecordsReorganizedObserver()
         installAppDidBecomeActiveObserver()
 
         DispatchQueue.main.async { [weak self] in
@@ -71,6 +73,7 @@ final class NotchWindowController: NSWindowController {
         removeMouseDismissMonitors()
         removeDataResetObserver()
         removeRecordDeletedObserver()
+        removeRecordsReorganizedObserver()
         removeAppDidBecomeActiveObserver()
         selectionAnimationController.destroy()
         viewModel.collapse()
@@ -83,6 +86,7 @@ final class NotchWindowController: NSWindowController {
         removeMouseDismissMonitors()
         removeDataResetObserver()
         removeRecordDeletedObserver()
+        removeRecordsReorganizedObserver()
         removeAppDidBecomeActiveObserver()
     }
 
@@ -168,10 +172,29 @@ final class NotchWindowController: NSWindowController {
         }
     }
 
+    private func installRecordsReorganizedObserver() {
+        recordsReorganizedObserver = NotificationCenter.default.addObserver(
+            forName: .casebaseRecordsReorganized,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.viewModel.handleRecordsReorganized()
+            }
+        }
+    }
+
     private func removeAppDidBecomeActiveObserver() {
         if let appDidBecomeActiveObserver {
             NotificationCenter.default.removeObserver(appDidBecomeActiveObserver)
             self.appDidBecomeActiveObserver = nil
+        }
+    }
+
+    private func removeRecordsReorganizedObserver() {
+        if let recordsReorganizedObserver {
+            NotificationCenter.default.removeObserver(recordsReorganizedObserver)
+            self.recordsReorganizedObserver = nil
         }
     }
 

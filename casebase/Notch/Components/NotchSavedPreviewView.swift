@@ -83,6 +83,7 @@ struct NotchSavedPreviewView: View {
 
             NotchQuestionComposerView(
                 question: $viewModel.draftQuestion,
+                placeholder: viewModel.answerComposerPlaceholder,
                 isBusy: viewModel.isBusy,
                 onSubmit: viewModel.submitQuestion
             )

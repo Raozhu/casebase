@@ -54,9 +54,16 @@ final class ImageExtractor: Extractor {
             mimeType: resolution.mimeType
         )
 
+        let previewStartedAt = Date()
+        CasebaseDebugLogger.log(
+            "image extractor preview started file=\"\(filePayload.fileURL.lastPathComponent)\""
+        )
         let preview = try previewWriter.writeCompressedImagePreview(
             from: filePayload.fileURL,
             prefix: filePayload.fileURL.deletingPathExtension().lastPathComponent
+        )
+        CasebaseDebugLogger.log(
+            "image extractor preview finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: previewStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" previewBytes=\(preview.byteCount) previewSize=\(preview.pixelWidth)x\(preview.pixelHeight)"
         )
         metadata["aiPreviewMimeType"] = "image/jpeg"
         metadata["aiPreviewPixelWidth"] = String(preview.pixelWidth)

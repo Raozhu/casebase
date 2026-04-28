@@ -8,6 +8,7 @@ enum CasebaseError: LocalizedError, Equatable {
     case analysisFailed(String)
     case storageFailed(String)
     case answerFailed(String)
+    case operationTimedOut(String)
     case recordNotFound(UUID)
     case emptyQuery
     case emptyResponse
@@ -28,6 +29,8 @@ enum CasebaseError: LocalizedError, Equatable {
             return CasebasePromptCatalog.errors.storageFailed(description)
         case let .answerFailed(description):
             return CasebasePromptCatalog.errors.answerFailed(description)
+        case let .operationTimedOut(description):
+            return CasebasePromptCatalog.errors.operationTimedOut(description)
         case let .recordNotFound(id):
             return CasebasePromptCatalog.errors.recordNotFound(id)
         case .emptyQuery:

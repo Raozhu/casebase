@@ -4,6 +4,7 @@ import Foundation
 final class CasebaseLibraryService: LibraryService {
     let rootDirectory: URL
 
+    private let assetsDirectory: URL
     private let knowledgeStore: LocalKnowledgeStore
     private let fileManager: FileManager
 
@@ -13,6 +14,7 @@ final class CasebaseLibraryService: LibraryService {
         fileManager: FileManager = .default
     ) {
         rootDirectory = configuration.rootDirectory
+        assetsDirectory = configuration.assetsDirectory
         self.knowledgeStore = knowledgeStore
         self.fileManager = fileManager
     }
@@ -31,6 +33,7 @@ final class CasebaseLibraryService: LibraryService {
         let assetURL = resolvedAssetURL(for: record)
         if fileManager.fileExists(atPath: assetURL.path) {
             try fileManager.removeItem(at: assetURL)
+            try removeEmptyPurposeFolderIfNeeded(for: assetURL)
         }
 
         NotificationCenter.default.post(
@@ -65,5 +68,23 @@ final class CasebaseLibraryService: LibraryService {
 
     private func resolvedAssetURL(for record: ImportRecord) -> URL {
         rootDirectory.appendingPathComponent(record.assetPath, isDirectory: false)
+    }
+
+    private func removeEmptyPurposeFolderIfNeeded(for assetURL: URL) throws {
+        let parentURL = assetURL.deletingLastPathComponent()
+        guard parentURL.deletingLastPathComponent().path == assetsDirectory.path else {
+            return
+        }
+
+        let remainingContents = try fileManager.contentsOfDirectory(
+            at: parentURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        guard remainingContents.isEmpty else {
+            return
+        }
+
+        try fileManager.removeItem(at: parentURL)
     }
 }

@@ -15,17 +15,20 @@ actor GeminiRequestExecutor {
     private let baseURL: URL
     private let apiKey: String
     private let requestTimeout: TimeInterval
+    private let proxySummary: String
     private let maxAttempts = 3
 
     init(
         baseURL: URL,
         apiKey: String,
         requestTimeout: TimeInterval,
+        proxyURLString: String? = nil,
         session: URLSession? = nil
     ) {
         self.baseURL = GeminiRequestExecutor.normalizedBaseURL(baseURL)
         self.apiKey = apiKey
         self.requestTimeout = requestTimeout
+        proxySummary = GeminiRequestExecutor.proxySummary(from: proxyURLString)
 
         if let session {
             self.session = session
@@ -33,6 +36,7 @@ actor GeminiRequestExecutor {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.timeoutIntervalForRequest = requestTimeout
             configuration.timeoutIntervalForResource = requestTimeout
+            CasebaseNetworkProxy.applyProxy(from: proxyURLString, to: configuration)
             self.session = URLSession(configuration: configuration)
         }
     }
@@ -89,6 +93,10 @@ actor GeminiRequestExecutor {
                     continue
                 }
 
+                logFailure(
+                    path: path,
+                    message: "status=\(httpResponse.statusCode) retryable=\(retryable) message=\(message)"
+                )
                 throw error
             } catch {
                 if Self.isRetryableTransportError(error), attempt < maxAttempts {
@@ -98,12 +106,26 @@ actor GeminiRequestExecutor {
                 }
 
                 if let transportError = error as? GeminiTransportError {
+                    logFailure(
+                        path: path,
+                        message: "transport=\(String(describing: transportError)) attempt=\(attempt)"
+                    )
                     throw transportError
                 }
+                logFailure(
+                    path: path,
+                    message: "transport=\(String(describing: error)) attempt=\(attempt)"
+                )
                 throw GeminiTransportError.transport(error)
             }
         }
 
+        if let lastError {
+            logFailure(
+                path: path,
+                message: "exhausted_retries error=\(String(describing: lastError))"
+            )
+        }
         throw lastError ?? GeminiTransportError.invalidResponse
     }
 
@@ -128,60 +150,113 @@ actor GeminiRequestExecutor {
         request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = payload
 
-        let (bytes, response) = try await session.bytes(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GeminiTransportError.invalidResponse
-        }
+        var lastError: Error?
 
-        guard (200 ..< 300).contains(httpResponse.statusCode) else {
-            let collected = try await Self.collectData(from: bytes)
-            throw GeminiTransportError.server(
-                statusCode: httpResponse.statusCode,
-                message: Self.extractServerMessage(from: collected),
-                retryable: httpResponse.statusCode == 429 || (500 ... 599).contains(httpResponse.statusCode)
-            )
-        }
+        for attempt in 1...maxAttempts {
+            do {
+                let (bytes, response) = try await session.bytes(for: request)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw GeminiTransportError.invalidResponse
+                }
 
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .useDefaultKeys
+                guard (200 ..< 300).contains(httpResponse.statusCode) else {
+                    let collected = try await Self.collectData(from: bytes)
+                    let message = Self.extractServerMessage(from: collected)
+                    let retryable = httpResponse.statusCode == 429 || (500 ... 599).contains(httpResponse.statusCode)
+                    let error = GeminiTransportError.server(
+                        statusCode: httpResponse.statusCode,
+                        message: message,
+                        retryable: retryable
+                    )
 
-        var eventDataLines: [String] = []
-        var currentLine = Data()
+                    if Self.isRetryableTransportError(error), attempt < maxAttempts {
+                        try await Self.sleepBeforeRetry(attempt: attempt)
+                        lastError = error
+                        continue
+                    }
 
-        for try await byte in bytes {
-            if byte == 0x0A {
-                try await Self.processSSELine(
-                    from: currentLine,
-                    eventDataLines: &eventDataLines,
-                    decoder: decoder,
-                    responseType: responseType,
-                    onEvent: onEvent
+                    logFailure(
+                        path: path,
+                        message: "status=\(httpResponse.statusCode) retryable=\(retryable) message=\(message)"
+                    )
+                    throw error
+                }
+
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .useDefaultKeys
+
+                var eventDataLines: [String] = []
+                var trailingJSONLines: [String] = []
+                var currentLine = Data()
+
+                for try await byte in bytes {
+                    if byte == 0x0A {
+                        try await Self.processSSELine(
+                            from: currentLine,
+                            eventDataLines: &eventDataLines,
+                            trailingJSONLines: &trailingJSONLines,
+                            decoder: decoder,
+                            responseType: responseType,
+                            onEvent: onEvent
+                        )
+                        currentLine.removeAll(keepingCapacity: true)
+                        continue
+                    }
+
+                    currentLine.append(byte)
+                }
+
+                if !currentLine.isEmpty {
+                    try await Self.processSSELine(
+                        from: currentLine,
+                        eventDataLines: &eventDataLines,
+                        trailingJSONLines: &trailingJSONLines,
+                        decoder: decoder,
+                        responseType: responseType,
+                        onEvent: onEvent
+                    )
+                }
+
+                if !eventDataLines.isEmpty {
+                    try await Self.emitSSEEvent(
+                        from: eventDataLines,
+                        decoder: decoder,
+                        responseType: responseType,
+                        onEvent: onEvent
+                    )
+                }
+
+                try Self.throwIfTrailingServerError(lines: trailingJSONLines)
+                return
+            } catch {
+                if Self.isRetryableTransportError(error), attempt < maxAttempts {
+                    try await Self.sleepBeforeRetry(attempt: attempt)
+                    lastError = error
+                    continue
+                }
+
+                if let transportError = error as? GeminiTransportError {
+                    logFailure(
+                        path: path,
+                        message: "transport=\(String(describing: transportError)) attempt=\(attempt)"
+                    )
+                    throw transportError
+                }
+                logFailure(
+                    path: path,
+                    message: "transport=\(String(describing: error)) attempt=\(attempt)"
                 )
-                currentLine.removeAll(keepingCapacity: true)
-                continue
+                throw GeminiTransportError.transport(error)
             }
-
-            currentLine.append(byte)
         }
 
-        if !currentLine.isEmpty {
-            try await Self.processSSELine(
-                from: currentLine,
-                eventDataLines: &eventDataLines,
-                decoder: decoder,
-                responseType: responseType,
-                onEvent: onEvent
+        if let lastError {
+            logFailure(
+                path: path,
+                message: "exhausted_retries error=\(String(describing: lastError))"
             )
         }
-
-        if !eventDataLines.isEmpty {
-            try await Self.emitSSEEvent(
-                from: eventDataLines,
-                decoder: decoder,
-                responseType: responseType,
-                onEvent: onEvent
-            )
-        }
+        throw lastError ?? GeminiTransportError.invalidResponse
     }
 
     private static func normalizedBaseURL(_ url: URL) -> URL {
@@ -189,9 +264,30 @@ actor GeminiRequestExecutor {
         return URL(string: trimmed) ?? url
     }
 
+    private static func proxySummary(from proxyURLString: String?) -> String {
+        guard
+            let proxyURLString,
+            let proxyURL = URL(string: proxyURLString),
+            let host = proxyURL.host
+        else {
+            return "none"
+        }
+
+        let scheme = proxyURL.scheme?.lowercased() ?? "unknown"
+        let port = proxyURL.port.map(String.init) ?? "-"
+        return "\(scheme)://\(host):\(port)"
+    }
+
     private static func requestURL(for path: String, relativeTo baseURL: URL) -> URL {
         let base = baseURL.absoluteString.hasSuffix("/") ? baseURL.absoluteString : baseURL.absoluteString + "/"
         return URL(string: base + path) ?? baseURL.appending(path: path)
+    }
+
+    private func logFailure(path: String, message: String) {
+        let host = baseURL.host ?? "unknown"
+        CasebaseDebugLogger.log(
+            "AI request failed host=\(host) proxy=\(proxySummary) path=\(path) \(message)"
+        )
     }
 
     private static func emitSSEEvent<Response: Decodable>(
@@ -218,6 +314,7 @@ actor GeminiRequestExecutor {
     private static func processSSELine<Response: Decodable>(
         from rawLine: Data,
         eventDataLines: inout [String],
+        trailingJSONLines: inout [String],
         decoder: JSONDecoder,
         responseType: Response.Type,
         onEvent: @Sendable (Response) async throws -> Void
@@ -244,9 +341,36 @@ actor GeminiRequestExecutor {
             return
         }
 
-        guard line.hasPrefix("data:") else { return }
-        let value = line.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
-        eventDataLines.append(String(value))
+        if line.hasPrefix("data:") {
+            let value = line.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
+            eventDataLines.append(String(value))
+            return
+        }
+
+        if line.hasPrefix(":") || line.hasPrefix("event:") || line.hasPrefix("id:") || line.hasPrefix("retry:") {
+            return
+        }
+
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("}") || trimmed.hasPrefix("[") || trimmed.hasPrefix("]") || trimmed.hasPrefix("\"") {
+            trailingJSONLines.append(trimmed)
+        }
+    }
+
+    private static func throwIfTrailingServerError(lines: [String]) throws {
+        guard !lines.isEmpty else { return }
+        let payload = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty, let data = payload.data(using: .utf8) else { return }
+        if let envelope = try? JSONDecoder().decode(GeminiErrorEnvelope.self, from: data) {
+            let statusCode = envelope.error.code ?? -1
+            throw GeminiTransportError.server(
+                statusCode: statusCode,
+                message: envelope.error.message,
+                retryable: statusCode == 429 || (500 ... 599).contains(statusCode)
+            )
+        }
+
+        throw GeminiTransportError.decodingFailed(payload)
     }
 
     private static func collectData(from bytes: URLSession.AsyncBytes) async throws -> Data {
@@ -300,4 +424,51 @@ private struct GeminiErrorPayload: Decodable {
     let code: Int?
     let message: String
     let status: String?
+}
+
+enum CasebaseNetworkProxy {
+    static func applyProxy(from proxyURLString: String?, to configuration: URLSessionConfiguration) {
+        guard
+            let proxyURLString,
+            let proxyURL = URL(string: proxyURLString),
+            let host = proxyURL.host
+        else {
+            return
+        }
+
+        let port = proxyURL.port ?? defaultPort(for: proxyURL.scheme)
+        let scheme = proxyURL.scheme?.lowercased() ?? ""
+        var dictionary: [AnyHashable: Any] = [:]
+
+        switch scheme {
+        case "socks", "socks5", "socks5h":
+            dictionary[kCFNetworkProxiesSOCKSEnable as String] = 1
+            dictionary[kCFNetworkProxiesSOCKSProxy as String] = host
+            dictionary[kCFNetworkProxiesSOCKSPort as String] = port
+        case "http", "https":
+            dictionary[kCFNetworkProxiesHTTPEnable as String] = 1
+            dictionary[kCFNetworkProxiesHTTPProxy as String] = host
+            dictionary[kCFNetworkProxiesHTTPPort as String] = port
+            dictionary[kCFNetworkProxiesHTTPSEnable as String] = 1
+            dictionary[kCFNetworkProxiesHTTPSProxy as String] = host
+            dictionary[kCFNetworkProxiesHTTPSPort as String] = port
+        default:
+            return
+        }
+
+        configuration.connectionProxyDictionary = dictionary
+    }
+
+    private static func defaultPort(for scheme: String?) -> Int {
+        switch scheme?.lowercased() {
+        case "http":
+            return 80
+        case "https":
+            return 443
+        case "socks", "socks5", "socks5h":
+            return 1080
+        default:
+            return 0
+        }
+    }
 }

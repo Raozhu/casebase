@@ -100,8 +100,8 @@ enum CasebasePromptCatalog {
 
         var hoverActionSearchTooltip: String {
             switch language {
-            case .simplifiedChinese: return "搜索"
-            case .english: return "Search"
+            case .simplifiedChinese: return "探索"
+            case .english: return "Explore"
             }
         }
 
@@ -642,6 +642,36 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var taskSupplementCancelButton: String {
+            switch language {
+            case .simplifiedChinese: return "取消"
+            case .english: return "Cancel"
+            }
+        }
+
+        var taskSupplementCancelConfirmationTitle: String {
+            switch language {
+            case .simplifiedChinese: return "取消这次入库？"
+            case .english: return "Cancel this import?"
+            }
+        }
+
+        func taskSupplementCancelConfirmationMessage(taskTitle: String) -> String {
+            switch language {
+            case .simplifiedChinese:
+                return "“\(taskTitle)” 将不会入库，原始文件和这条待补全任务都会被移除。"
+            case .english:
+                return "\"\(taskTitle)\" will not be saved. The stored file and this clarification task will be removed."
+            }
+        }
+
+        var taskSupplementCancelConfirmationConfirmButton: String {
+            switch language {
+            case .simplifiedChinese: return "确认取消"
+            case .english: return "Confirm Cancel"
+            }
+        }
+
         var taskSupplementSuggestions: [String] {
             switch language {
             case .simplifiedChinese:
@@ -753,9 +783,9 @@ enum CasebasePromptCatalog {
         var answeringDetail: String {
             switch language {
             case .simplifiedChinese:
-                return "基于刚保存的资料检索相关内容并生成答案。"
+                return "正在检索已存资料的原始内容，并根据真实证据生成答案。"
             case .english:
-                return "Retrieving relevant saved context and generating an answer."
+                return "Retrieving original saved evidence and generating an answer from it."
             }
         }
 
@@ -763,6 +793,69 @@ enum CasebasePromptCatalog {
             switch language {
             case .simplifiedChinese: return "已保存"
             case .english: return "Saved"
+            }
+        }
+
+        var searchPanelTitle: String {
+            switch language {
+            case .simplifiedChinese: return "探索"
+            case .english: return "Explore"
+            }
+        }
+
+        var searchPanelDetail: String {
+            switch language {
+            case .simplifiedChinese: return ""
+            case .english: return ""
+            }
+        }
+
+        var searchEmptyHint: String {
+            switch language {
+            case .simplifiedChinese: return ""
+            case .english: return ""
+            }
+        }
+
+        var searchConversationListButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "会话"
+            case .english: return "History"
+            }
+        }
+
+        var searchNewConversationButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "新对话"
+            case .english: return "New Chat"
+            }
+        }
+
+        var searchHistoryEmptyTitle: String {
+            switch language {
+            case .simplifiedChinese: return "还没有探索记录"
+            case .english: return "No explore history yet"
+            }
+        }
+
+        var searchHistoryEmptyDetail: String {
+            switch language {
+            case .simplifiedChinese: return "发起一次探索后，这里会保留你的对话记录。"
+            case .english: return "Start an explore chat and the conversation will appear here."
+            }
+        }
+
+        var searchQuestionLabel: String {
+            switch language {
+            case .simplifiedChinese: return "问题"
+            case .english: return "Question"
+            }
+        }
+
+        var searchHistoryTurnsLabel: String {
+            switch language {
+            case .simplifiedChinese: return "轮对话"
+            case .english: return "Turns"
             }
         }
 
@@ -794,6 +887,27 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var sourceOpenButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "打开原文件"
+            case .english: return "Open Source"
+            }
+        }
+
+        var answerNoEvidenceMessage: String {
+            switch language {
+            case .simplifiedChinese: return "还没有检索到足够资料来回答这个问题。"
+            case .english: return "There is not enough retrieved evidence to answer that question yet."
+            }
+        }
+
+        var answerEvidenceUnavailableMessage: String {
+            switch language {
+            case .simplifiedChinese: return "找到了相关资料，但暂时无法重新读取它们的原文或预览内容。"
+            case .english: return "Relevant records were found, but their original content or previews could not be rebuilt right now."
+            }
+        }
+
         var errorTitle: String {
             switch language {
             case .simplifiedChinese: return "出了点问题"
@@ -819,6 +933,13 @@ enum CasebasePromptCatalog {
             switch language {
             case .simplifiedChinese: return "继续问这个资料…"
             case .english: return "Ask more about this saved item..."
+            }
+        }
+
+        var searchComposerPlaceholder: String {
+            switch language {
+            case .simplifiedChinese: return "探索点什么……"
+            case .english: return "Explore something..."
             }
         }
 
@@ -977,7 +1098,7 @@ enum CasebasePromptCatalog {
             }
         }
 
-        var analysisResponseJSONSchema: GeminiJSONObject {
+        var analysisResponseJSONSchema: [String: Any] {
             [
                 "type": "object",
                 "properties": [
@@ -1063,8 +1184,8 @@ enum CasebasePromptCatalog {
 
         var answerNoHitsInstruction: String {
             switch language {
-            case .simplifiedChinese: return "自然直接地回答，不要提到引用、记录 ID 或内部检索过程。默认使用简体中文。"
-            case .english: return "Answer naturally and directly. Do not mention citations, record IDs, or internal retrieval steps. Default to English."
+            case .simplifiedChinese: return "明确说明当前资料不足，不要用资料库之外的知识补齐答案。不要提到引用、记录 ID 或内部检索过程。默认使用简体中文。"
+            case .english: return "State plainly that the saved evidence is insufficient. Do not fill the gap with outside knowledge. Do not mention citations, record IDs, or internal retrieval steps. Default to English."
             }
         }
 
@@ -1092,8 +1213,9 @@ enum CasebasePromptCatalog {
                 判断哪些检索结果直接支持最终答案。
                 只返回 JSON。
                 规则：
-                - `citedIndexes` 必须填写 1-based 的记录序号，且这些记录要对最终答案有实质支撑。
-                - 只有在记录确实被使用，或明确支持某个事实时，才能把它加入 `citedIndexes`。
+                - `citations` 中的 `index` 必须填写 1-based 的资料序号，且这些资料要对最终答案有实质支撑。
+                - 只有在资料确实被使用，或明确支持某个事实时，才能把它加入 `citations`。
+                - `supportNote` 要简短说明这条资料支持了答案的哪一部分。对于图片，可以说明图中可见的事实。
                 - 如果答案中有任何部分依赖记录之外的推理或知识，`usedModelSupplement` 必须为 true。
                 """
             case .english:
@@ -1101,8 +1223,9 @@ enum CasebasePromptCatalog {
                 Decide which retrieved records directly support the answer.
                 Return JSON only.
                 Rules:
-                - `citedIndexes` must contain 1-based record indexes that materially support the final answer.
-                - Only include indexes that were actually used or clearly support a specific factual claim.
+                - Each `citations[index]` must use a 1-based source index that materially supports the final answer.
+                - Only include sources that were actually used or clearly support a specific factual claim.
+                - `supportNote` should briefly explain what part of the answer each source supports. For images, describe the visible evidence.
                 - `usedModelSupplement` must be true if any part of the answer relies on reasoning or knowledge not directly supported by the records.
                 """
             }
@@ -1143,6 +1266,27 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var recordTypePromptLabel: String {
+            switch language {
+            case .simplifiedChinese: return "来源类型"
+            case .english: return "Source type"
+            }
+        }
+
+        var recordScenePromptLabel: String {
+            switch language {
+            case .simplifiedChinese: return "场景"
+            case .english: return "Scene"
+            }
+        }
+
+        var recordPurposePromptLabel: String {
+            switch language {
+            case .simplifiedChinese: return "用途"
+            case .english: return "Purpose"
+            }
+        }
+
         var recordTagsLabel: String {
             switch language {
             case .simplifiedChinese: return "标签"
@@ -1157,15 +1301,44 @@ enum CasebasePromptCatalog {
             }
         }
 
-        var attributionJSONSchema: GeminiJSONObject {
+        var recordEvidencePromptLabel: String {
+            switch language {
+            case .simplifiedChinese: return "证据摘录"
+            case .english: return "Evidence excerpt"
+            }
+        }
+
+        var recordSourceTextPromptLabel: String {
+            switch language {
+            case .simplifiedChinese: return "原始内容"
+            case .english: return "Original content"
+            }
+        }
+
+        var attributionJSONSchema: [String: Any] {
             [
                 "type": "object",
                 "properties": [
-                    "citedIndexes": [
+                    "citations": [
                         "type": "array",
                         "description": attributionCitedIndexesDescription,
                         "items": [
-                            "type": "integer",
+                            "type": "object",
+                            "properties": [
+                                "index": [
+                                    "type": "integer",
+                                    "description": attributionCitedIndexesDescription,
+                                ],
+                                "supportNote": [
+                                    "type": "string",
+                                    "description": attributionSupportNoteDescription,
+                                ],
+                            ],
+                            "required": [
+                                "index",
+                                "supportNote",
+                            ],
+                            "additionalProperties": false,
                         ],
                     ],
                     "usedModelSupplement": [
@@ -1174,7 +1347,7 @@ enum CasebasePromptCatalog {
                     ],
                 ],
                 "required": [
-                    "citedIndexes",
+                    "citations",
                     "usedModelSupplement",
                 ],
                 "additionalProperties": false,
@@ -1204,8 +1377,8 @@ enum CasebasePromptCatalog {
             }
         }
 
-        func answerPrompt(question: String, hits: [SearchHit], policy: AnswerPolicy) -> String {
-            if hits.isEmpty {
+        func answerPrompt(question: String, sources: [AnswerEvidencePacket], policy: AnswerPolicy) -> String {
+            if sources.isEmpty {
                 return """
                 \(answerAppPreamble)
                 \(answerNoHitsDetail)
@@ -1225,11 +1398,11 @@ enum CasebasePromptCatalog {
             \(question)
 
             \(retrievedRecordsLabel):
-            \(numberedRecordContext(from: hits))
+            \(numberedRecordContext(from: sources))
             """
         }
 
-        func attributionPrompt(question: String, answerText: String, hits: [SearchHit]) -> String {
+        func attributionPrompt(question: String, answerText: String, sources: [AnswerEvidencePacket]) -> String {
             """
             \(attributionLead)
 
@@ -1240,23 +1413,27 @@ enum CasebasePromptCatalog {
             \(answerText)
 
             \(retrievedRecordsLabel):
-            \(numberedRecordContext(from: hits))
+            \(numberedRecordContext(from: sources))
             """
         }
 
-        private func numberedRecordContext(from hits: [SearchHit]) -> String {
-            hits.enumerated().map { offset, hit in
-                let record = hit.record
-                let snippets = hit.matchedSnippets.isEmpty ? record.usefulSnippets : hit.matchedSnippets
-                let snippetBlock = snippets.prefix(3).joined(separator: " | ")
+        private func numberedRecordContext(from sources: [AnswerEvidencePacket]) -> String {
+            sources.enumerated().map { offset, source in
+                let record = source.record
                 let tags = record.tags.joined(separator: ", ")
+                let evidenceExcerpt = source.evidenceExcerpt ?? ""
+                let sourceText = source.modelTextContext ?? ""
 
                 return """
                 [\(offset + 1)]
                 \(recordTitleLabel): \(record.title)
+                \(recordTypePromptLabel): \(record.sourceKind.rawValue)
+                \(recordScenePromptLabel): \(record.scene)
+                \(recordPurposePromptLabel): \(record.purpose)
                 \(recordSummaryLabel): \(record.shortSummary)
                 \(recordTagsLabel): \(tags)
-                \(recordSnippetsLabel): \(snippetBlock)
+                \(recordEvidencePromptLabel): \(evidenceExcerpt)
+                \(recordSourceTextPromptLabel): \(sourceText)
                 """
             }
             .joined(separator: "\n\n")
@@ -1297,6 +1474,13 @@ enum CasebasePromptCatalog {
             }
         }
 
+        private var attributionSupportNoteDescription: String {
+            switch language {
+            case .simplifiedChinese: return "简短说明这条资料具体支持了答案的哪一部分。"
+            case .english: return "Briefly explain which part of the answer this source supports."
+            }
+        }
+
         private var analysisSnippetsDescription: String {
             switch language {
             case .simplifiedChinese: return "值得长期保留的原始事实或短原文片段。"
@@ -1332,7 +1516,7 @@ enum CasebasePromptCatalog {
             }
         }
 
-        private var clarificationSchema: GeminiJSONObject {
+        private var clarificationSchema: [String: Any] {
             [
                 "type": "object",
                 "properties": [
@@ -1725,6 +1909,13 @@ enum CasebasePromptCatalog {
             }
         }
 
+        func operationTimedOut(_ description: String) -> String {
+            switch language {
+            case .simplifiedChinese: return "处理超时：\(description)"
+            case .english: return "Operation timed out: \(description)"
+            }
+        }
+
         func recordNotFound(_ id: UUID) -> String {
             switch language {
             case .simplifiedChinese:
@@ -1796,6 +1987,48 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var importStageSavingAsset: String {
+            switch language {
+            case .simplifiedChinese: return "保存原始文件"
+            case .english: return "saving the source asset"
+            }
+        }
+
+        var importStageExtractingContent: String {
+            switch language {
+            case .simplifiedChinese: return "提取内容"
+            case .english: return "extracting content"
+            }
+        }
+
+        var importStageAnalyzingContent: String {
+            switch language {
+            case .simplifiedChinese: return "AI 分析"
+            case .english: return "running AI analysis"
+            }
+        }
+
+        var importStageGeneratingEmbedding: String {
+            switch language {
+            case .simplifiedChinese: return "生成检索向量"
+            case .english: return "generating the embedding"
+            }
+        }
+
+        var importStageSavingRecord: String {
+            switch language {
+            case .simplifiedChinese: return "写入知识库"
+            case .english: return "saving the record"
+            }
+        }
+
+        var importStageUpdatingExistingRecord: String {
+            switch language {
+            case .simplifiedChinese: return "更新已存在记录"
+            case .english: return "updating an existing record"
+            }
+        }
+
         var geminiReturnedEmptyRequiredFields: String {
             switch language {
             case .simplifiedChinese: return "模型返回了空的必填字段。"
@@ -1824,6 +2057,32 @@ enum CasebasePromptCatalog {
             }
         }
 
+        func importTaskTimedOut(seconds: Int, stageDescription: String? = nil) -> String {
+            let normalizedStage = stageDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            switch language {
+            case .simplifiedChinese:
+                if let normalizedStage, !normalizedStage.isEmpty {
+                    return "这次入库在“\(normalizedStage)”阶段超过 \(seconds) 秒仍未完成，已自动停止。请查看 /tmp/casebase-debug.log 确认卡住阶段；如果卡在 AI 分析，再检查代理或网络状态。"
+                }
+                return "这次入库超过 \(seconds) 秒仍未完成，已自动停止。请查看 /tmp/casebase-debug.log 确认卡住阶段；如果卡在 AI 分析，再检查代理或网络状态。"
+            case .english:
+                if let normalizedStage, !normalizedStage.isEmpty {
+                    return "This import was still in \(normalizedStage) after \(seconds) seconds and was stopped automatically. Check /tmp/casebase-debug.log for the stalled stage; if it is AI analysis, then verify the proxy or network."
+                }
+                return "This import did not finish within \(seconds) seconds and was stopped automatically. Check /tmp/casebase-debug.log for the stalled stage; if it is AI analysis, then verify the proxy or network."
+            }
+        }
+
+        func clarificationTaskTimedOut(seconds: Int) -> String {
+            switch language {
+            case .simplifiedChinese:
+                return "这次补全分析超过 \(seconds) 秒仍未完成，已自动停止。请检查代理或网络状态后重试。"
+            case .english:
+                return "This clarification run did not finish within \(seconds) seconds and was stopped automatically. Check the proxy or network and try again."
+            }
+        }
+
         func failedToDecodeAIResponse(_ preview: String) -> String {
             switch language {
             case .simplifiedChinese: return "无法解析模型响应：\(preview)"
@@ -1831,12 +2090,18 @@ enum CasebasePromptCatalog {
             }
         }
 
-        var analysisFallbackNeedsManualRetry: String {
+        func analysisFallbackNeedsManualRetry(reason: String? = nil) -> String {
+            let trimmedReason = reason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
             switch language {
             case .simplifiedChinese:
-                return "AI 未能稳定解析这份内容，系统也没有生成可补全的问题，请检查内容清晰度或换一种更完整的输入后重试。"
+                let base = "AI 未能稳定解析这份内容，系统也没有生成可补全的问题，请检查内容清晰度或换一种更完整的输入后重试。"
+                guard !trimmedReason.isEmpty else { return base }
+                return "\(base) 原因：\(trimmedReason)"
             case .english:
-                return "AI could not reliably analyze this item and no clarification questions were generated. Please retry with clearer or more complete input."
+                let base = "AI could not reliably analyze this item and no clarification questions were generated. Please retry with clearer or more complete input."
+                guard !trimmedReason.isEmpty else { return base }
+                return "\(base) Cause: \(trimmedReason)"
             }
         }
 

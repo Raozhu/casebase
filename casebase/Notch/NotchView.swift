@@ -60,7 +60,7 @@ struct NotchHoverView: View {
                     state: viewModel.taskRailState,
                     text: viewModel.taskRailDisplayText,
                     showsShimmer: viewModel.taskRailShowsShimmer,
-                    onTap: viewModel.openLibrary
+                    onTap: viewModel.handleTaskRailTap
                 )
                 .offset(y: viewModel.taskRailOffsetY)
                 .transition(.notchRailMorph)

@@ -7,6 +7,7 @@ struct CasebaseRuntime {
     let knowledgeStore: KnowledgeStore
     let libraryService: LibraryService
     let importCoordinator: ImportCoordinator
+    let assetOrganizationService: AssetOrganizationService
     let answerService: AnswerService
     let dataResetService: DataResetService
 
@@ -30,6 +31,8 @@ struct CasebaseRuntime {
         let answerService = KnowledgeBackedAnswerService(
             knowledgeStore: knowledgeStore,
             aiClient: aiClient,
+            extractor: extractor,
+            assetVault: assetVault,
             configuration: configuration
         )
         let dataResetService = CasebaseDataResetService(
@@ -42,6 +45,7 @@ struct CasebaseRuntime {
             knowledgeStore: knowledgeStore,
             libraryService: libraryService,
             importCoordinator: importCoordinator,
+            assetOrganizationService: importCoordinator,
             answerService: answerService,
             dataResetService: dataResetService
         )

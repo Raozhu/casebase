@@ -4,9 +4,17 @@ final class OpenAIAudioTranscriber: AudioTranscriber {
     private let configuration: AIServiceConfiguration
     private let session: URLSession
 
-    init(configuration: AIServiceConfiguration, session: URLSession = .shared) {
+    init(configuration: AIServiceConfiguration, session: URLSession? = nil) {
         self.configuration = configuration
-        self.session = session
+        if let session {
+            self.session = session
+        } else {
+            let sessionConfiguration = URLSessionConfiguration.ephemeral
+            sessionConfiguration.timeoutIntervalForRequest = configuration.requestTimeout
+            sessionConfiguration.timeoutIntervalForResource = configuration.requestTimeout
+            CasebaseNetworkProxy.applyProxy(from: configuration.proxyURLString, to: sessionConfiguration)
+            self.session = URLSession(configuration: sessionConfiguration)
+        }
     }
 
     func transcribe(fileURL: URL, mimeType: String?) async throws -> AudioTranscription {

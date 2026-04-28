@@ -3,6 +3,7 @@ import SwiftUI
 struct NotchHoverActionsView: View {
     let onOpenLibrary: () -> Void
     let onOpenSettings: () -> Void
+    let onOpenSearch: () -> Void
     let showsSelectionCapturePrompt: Bool
     let onAuthorizeSelectionCapture: () -> Void
     let showsScreenRecordingPrompt: Bool
@@ -48,7 +49,7 @@ struct NotchHoverActionsView: View {
                 HoverActionButton(
                     icon: .search,
                     helpText: CasebasePromptCatalog.ui.hoverActionSearchTooltip,
-                    action: {}
+                    action: onOpenSearch
                 )
             }
 
@@ -122,7 +123,7 @@ private struct HoverActionButton: View {
         case .library:
             return CasebasePromptCatalog.language == .simplifiedChinese ? "数据" : "Library"
         case .search:
-            return CasebasePromptCatalog.language == .simplifiedChinese ? "搜索" : "Search"
+            return CasebasePromptCatalog.language == .simplifiedChinese ? "探索" : "Explore"
         default:
             return ""
         }

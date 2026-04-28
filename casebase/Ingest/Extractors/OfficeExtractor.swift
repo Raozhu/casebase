@@ -53,37 +53,63 @@ final class OfficeExtractor: Extractor {
         metadata.merge(filePayload.contextMetadata) { _, new in new }
 
         var attachments = [originalAttachment]
+        let previewStartedAt = Date()
+        CasebaseDebugLogger.log(
+            "office extractor preview started file=\"\(filePayload.fileURL.lastPathComponent)\""
+        )
         if let preview = await previewRenderer.renderPreviewAttachment(
             for: filePayload.fileURL,
             prefix: filePayload.fileURL.deletingPathExtension().lastPathComponent
         ) {
             attachments.append(preview)
             metadata["generatedPreviewCount"] = "1"
+            CasebaseDebugLogger.log(
+                "office extractor preview finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: previewStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" generatedPreviewCount=1"
+            )
         } else {
             metadata["generatedPreviewCount"] = "0"
+            CasebaseDebugLogger.log(
+                "office extractor preview finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: previewStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" generatedPreviewCount=0"
+            )
         }
 
+        let textExtractionStartedAt = Date()
+        CasebaseDebugLogger.log(
+            "office extractor text extraction started file=\"\(filePayload.fileURL.lastPathComponent)\""
+        )
         let extraction = try extractedText(for: filePayload.fileURL)
+        CasebaseDebugLogger.log(
+            "office extractor text extraction finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: textExtractionStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" extractedChars=\(extraction.text?.count ?? 0)"
+        )
         var rawText = extraction.text
         for (key, value) in extraction.metadata {
             metadata[key] = value
         }
 
-        if let previewAttachment = attachments.first(where: { $0.kind == .pagePreview }),
-           let previewOCR = try? ocrService.recognizeText(from: URL(fileURLWithPath: previewAttachment.path)),
-           !previewOCR.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        {
-            metadata["previewOCRCharacterCount"] = String(previewOCR.count)
-            if let currentText = rawText {
-                if shouldAppendOCR(previewOCR, to: currentText) {
-                    rawText = currentText + "\n\n" + previewOCR
-                    metadata["officeExtractionSource"] = [metadata["officeExtractionSource"], "preview-ocr"]
-                        .compactMap { $0 }
-                        .joined(separator: "+")
+        if let previewAttachment = attachments.first(where: { $0.kind == .pagePreview }) {
+            let ocrStartedAt = Date()
+            CasebaseDebugLogger.log(
+                "office extractor preview OCR started file=\"\(filePayload.fileURL.lastPathComponent)\""
+            )
+            let previewOCR = try? ocrService.recognizeText(from: URL(fileURLWithPath: previewAttachment.path))
+            CasebaseDebugLogger.log(
+                "office extractor preview OCR finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: ocrStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" ocrChars=\(previewOCR?.count ?? 0)"
+            )
+            if let previewOCR,
+               !previewOCR.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
+                metadata["previewOCRCharacterCount"] = String(previewOCR.count)
+                if let currentText = rawText {
+                    if shouldAppendOCR(previewOCR, to: currentText) {
+                        rawText = currentText + "\n\n" + previewOCR
+                        metadata["officeExtractionSource"] = [metadata["officeExtractionSource"], "preview-ocr"]
+                            .compactMap { $0 }
+                            .joined(separator: "+")
+                    }
+                } else {
+                    rawText = previewOCR
+                    metadata["officeExtractionSource"] = "preview-ocr"
                 }
-            } else {
-                rawText = previewOCR
-                metadata["officeExtractionSource"] = "preview-ocr"
             }
         }
 
@@ -104,7 +130,10 @@ final class OfficeExtractor: Extractor {
         let fileExtension = fileURL.pathExtension.lowercased()
         var candidates: [(source: String, text: String)] = []
         var metadata: [String: String] = [:]
+        let fileName = fileURL.lastPathComponent
 
+        let openXMLStartedAt = Date()
+        CasebaseDebugLogger.log("office extractor ooxml started file=\"\(fileName)\"")
         if let openXML = try OfficeOpenXMLReader.extractText(from: fileURL) {
             let trimmed = normalizeCandidateText(openXML.text)
             if !trimmed.isEmpty {
@@ -114,16 +143,32 @@ final class OfficeExtractor: Extractor {
                 }
             }
         }
+        let hasOpenXMLCandidate = candidates.contains(where: { $0.source == "ooxml" })
+        CasebaseDebugLogger.log(
+            "office extractor ooxml finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: openXMLStartedAt)) file=\"\(fileName)\" candidates=\(hasOpenXMLCandidate ? 1 : 0)"
+        )
 
-        if Self.textUtilExtensions.contains(fileExtension),
-           let text = extractTextWithTextUtil(from: fileURL)
-        {
-            candidates.append(("textutil", text))
+        if Self.textUtilExtensions.contains(fileExtension) {
+            let textUtilStartedAt = Date()
+            CasebaseDebugLogger.log("office extractor textutil started file=\"\(fileName)\"")
+            let text = extractTextWithTextUtil(from: fileURL)
+            CasebaseDebugLogger.log(
+                "office extractor textutil finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: textUtilStartedAt)) file=\"\(fileName)\" chars=\(text?.count ?? 0)"
+            )
+            if let text {
+                candidates.append(("textutil", text))
+            }
         }
 
+        let spotlightStartedAt = Date()
+        CasebaseDebugLogger.log("office extractor spotlight started file=\"\(fileName)\"")
         if let spotlightText = extractTextWithSpotlight(from: fileURL) {
             candidates.append(("spotlight", spotlightText))
         }
+        let spotlightCharacterCount = candidates.first(where: { $0.source == "spotlight" })?.text.count ?? 0
+        CasebaseDebugLogger.log(
+            "office extractor spotlight finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: spotlightStartedAt)) file=\"\(fileName)\" chars=\(spotlightCharacterCount)"
+        )
 
         let best = bestCandidate(in: candidates)
         metadata["officeExtractionSource"] = best?.source ?? "none"

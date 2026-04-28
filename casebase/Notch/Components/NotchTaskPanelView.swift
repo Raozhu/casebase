@@ -10,6 +10,10 @@ struct NotchTaskPanelView: View {
     }
 
     var body: some View {
+        content
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
 
@@ -96,6 +100,14 @@ struct NotchTaskPanelView: View {
 
                     HStack(alignment: .center, spacing: 8) {
                         Spacer(minLength: 0)
+
+                        LibraryActionTileButton(
+                            icon: .cross,
+                            title: CasebasePromptCatalog.ui.taskSupplementCancelButton,
+                            isDestructive: true,
+                            action: { viewModel.confirmClarificationCancellation(task.id) }
+                        )
+                        .frame(width: LibraryActionTileButton.standardWidth)
 
                         LibraryActionTileButton(
                             icon: .skip,

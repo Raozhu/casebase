@@ -120,6 +120,82 @@ actor LocalKnowledgeStore: KnowledgeStore {
         return records
     }
 
+    func listRecords(
+        limit: Int = RecordCatalogPaging.defaultLimit,
+        offset: Int = 0,
+        filters: RecordCatalogFilters = RecordCatalogFilters()
+    ) async throws -> RecordCatalogPage {
+        let normalizedLimit = RecordCatalogPaging.normalizedLimit(limit)
+        let normalizedOffset = RecordCatalogPaging.normalizedOffset(offset)
+        let filterClauses = catalogFilterClauses(for: filters, recordAlias: nil)
+        let whereSQL = catalogWhereSQL(from: filterClauses)
+
+        let statement = try database.prepare("""
+            SELECT
+                \(catalogRecordSelectionSQL())
+            FROM records
+            \(whereSQL)
+            ORDER BY updated_at DESC
+            LIMIT ? OFFSET ?;
+            """)
+        defer { database.finalize(statement) }
+
+        var index: Int32 = 1
+        try bindCatalogFilters(filters, startingAt: &index, in: statement)
+        try database.bind(normalizedLimit + 1, at: index, in: statement)
+        index += 1
+        try database.bind(normalizedOffset, at: index, in: statement)
+
+        var records: [ImportRecord] = []
+        while try database.step(statement) == SQLITE_ROW {
+            records.append(try decodeRecord(from: statement))
+        }
+
+        let hasMore = records.count > normalizedLimit
+        if hasMore {
+            records = Array(records.prefix(normalizedLimit))
+        }
+
+        return RecordCatalogPage(
+            items: records,
+            limit: normalizedLimit,
+            offset: normalizedOffset,
+            hasMore: hasMore
+        )
+    }
+
+    func searchRecords(
+        query: String,
+        limit: Int = RecordCatalogPaging.defaultLimit,
+        offset: Int = 0,
+        filters: RecordCatalogFilters = RecordCatalogFilters()
+    ) async throws -> RecordCatalogPage {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else {
+            throw CasebaseError.emptyQuery
+        }
+
+        let normalizedLimit = RecordCatalogPaging.normalizedLimit(limit)
+        let normalizedOffset = RecordCatalogPaging.normalizedOffset(offset)
+        let tokens = tokenize(normalizedQuery)
+
+        if !tokens.isEmpty {
+            return try searchRecordsUsingFTS(
+                queryTokens: tokens,
+                limit: normalizedLimit,
+                offset: normalizedOffset,
+                filters: filters
+            )
+        }
+
+        return try searchRecordsUsingLike(
+            query: normalizedQuery,
+            limit: normalizedLimit,
+            offset: normalizedOffset,
+            filters: filters
+        )
+    }
+
     func fetchRecords(ids: [UUID]) async throws -> [ImportRecord] {
         guard !ids.isEmpty else {
             return []
@@ -171,10 +247,50 @@ actor LocalKnowledgeStore: KnowledgeStore {
         return ids.compactMap { recordsByID[$0] }
     }
 
-    func search(query: String, embedding: [Float], limit: Int) async throws -> [SearchHit] {
+    func search(query: String, embedding: [Float], limit: Int, scope: AnswerQueryScope) async throws -> [SearchHit] {
         let cappedLimit = max(1, limit)
         let tokens = tokenize(query)
 
+        let candidates: [ImportRecord]
+
+        switch scope {
+        case .global:
+            candidates = try globalCandidates(tokens: tokens, limit: cappedLimit)
+        case let .recordIDs(ids):
+            guard !ids.isEmpty else {
+                return []
+            }
+            candidates = try await fetchRecords(ids: ids)
+        }
+
+        let scored = candidates.map { record -> SearchHit in
+            let textScore = keywordScore(for: record, tokens: tokens)
+            let vectorScore = cosineSimilarity(lhs: embedding, rhs: record.embedding)
+            let effectiveScore: Double
+            if tokens.isEmpty {
+                effectiveScore = vectorScore
+            } else if embedding.isEmpty {
+                effectiveScore = textScore
+            } else {
+                effectiveScore = (textScore * 0.65) + (vectorScore * 0.35)
+            }
+            return SearchHit(
+                record: record,
+                score: effectiveScore,
+                matchedSnippets: matchedSnippets(for: record, tokens: tokens)
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.score == rhs.score {
+                return lhs.record.updatedAt > rhs.record.updatedAt
+            }
+            return lhs.score > rhs.score
+        }
+
+        return Array(scored.prefix(cappedLimit))
+    }
+
+    private func globalCandidates(tokens: [String], limit: Int) throws -> [ImportRecord] {
         var candidates: [ImportRecord] = []
         var seenIDs = Set<UUID>()
 
@@ -215,7 +331,7 @@ actor LocalKnowledgeStore: KnowledgeStore {
             defer { database.finalize(statement) }
 
             try database.bind(ftsQuery, at: 1, in: statement)
-            try database.bind(max(cappedLimit * 8, 24), at: 2, in: statement)
+            try database.bind(max(limit * 8, 24), at: 2, in: statement)
 
             while try database.step(statement) == SQLITE_ROW {
                 let record = try decodeRecord(from: statement)
@@ -259,7 +375,7 @@ actor LocalKnowledgeStore: KnowledgeStore {
                 """)
             defer { database.finalize(statement) }
 
-            try database.bind(max(cappedLimit * 12, 48), at: 1, in: statement)
+            try database.bind(max(limit * 12, 48), at: 1, in: statement)
 
             while try database.step(statement) == SQLITE_ROW {
                 let record = try decodeRecord(from: statement)
@@ -269,31 +385,7 @@ actor LocalKnowledgeStore: KnowledgeStore {
             }
         }
 
-        let scored = candidates.map { record -> SearchHit in
-            let textScore = keywordScore(for: record, tokens: tokens)
-            let vectorScore = cosineSimilarity(lhs: embedding, rhs: record.embedding)
-            let effectiveScore: Double
-            if tokens.isEmpty {
-                effectiveScore = vectorScore
-            } else if embedding.isEmpty {
-                effectiveScore = textScore
-            } else {
-                effectiveScore = (textScore * 0.65) + (vectorScore * 0.35)
-            }
-            return SearchHit(
-                record: record,
-                score: effectiveScore,
-                matchedSnippets: matchedSnippets(for: record, tokens: tokens)
-            )
-        }
-        .sorted { lhs, rhs in
-            if lhs.score == rhs.score {
-                return lhs.record.updatedAt > rhs.record.updatedAt
-            }
-            return lhs.score > rhs.score
-        }
-
-        return Array(scored.prefix(cappedLimit))
+        return candidates
     }
 
     func deleteAllRecords() async throws {
@@ -691,6 +783,198 @@ actor LocalKnowledgeStore: KnowledgeStore {
 
     private func decodeStructuredData(_ json: String) throws -> [String: StructuredFieldValue] {
         try decodeJSONValue(json, as: [String: StructuredFieldValue].self)
+    }
+
+    private func searchRecordsUsingFTS(
+        queryTokens: [String],
+        limit: Int,
+        offset: Int,
+        filters: RecordCatalogFilters
+    ) throws -> RecordCatalogPage {
+        let filterClauses = catalogFilterClauses(for: filters, recordAlias: "r")
+        let whereClauses = ["records_fts MATCH ?"] + filterClauses
+        let whereSQL = catalogWhereSQL(from: whereClauses)
+        let ftsQuery = queryTokens.map { "\($0)*" }.joined(separator: " OR ")
+
+        let statement = try database.prepare("""
+            SELECT
+                \(catalogRecordSelectionSQL(alias: "r"))
+            FROM records_fts
+            JOIN records r ON r.id = records_fts.id
+            \(whereSQL)
+            ORDER BY bm25(records_fts), r.updated_at DESC
+            LIMIT ? OFFSET ?;
+            """)
+        defer { database.finalize(statement) }
+
+        var index: Int32 = 1
+        try database.bind(ftsQuery, at: index, in: statement)
+        index += 1
+        try bindCatalogFilters(filters, startingAt: &index, in: statement)
+        try database.bind(limit + 1, at: index, in: statement)
+        index += 1
+        try database.bind(offset, at: index, in: statement)
+
+        var records: [ImportRecord] = []
+        while try database.step(statement) == SQLITE_ROW {
+            records.append(try decodeRecord(from: statement))
+        }
+
+        let hasMore = records.count > limit
+        if hasMore {
+            records = Array(records.prefix(limit))
+        }
+
+        return RecordCatalogPage(items: records, limit: limit, offset: offset, hasMore: hasMore)
+    }
+
+    private func searchRecordsUsingLike(
+        query: String,
+        limit: Int,
+        offset: Int,
+        filters: RecordCatalogFilters
+    ) throws -> RecordCatalogPage {
+        let filterClauses = catalogFilterClauses(for: filters, recordAlias: "r")
+        let whereClauses = [
+            """
+            (
+                r.title LIKE ? COLLATE NOCASE OR
+                r.short_summary LIKE ? COLLATE NOCASE OR
+                r.search_text LIKE ? COLLATE NOCASE OR
+                r.tags_json LIKE ? COLLATE NOCASE
+            )
+            """
+        ] + filterClauses
+        let whereSQL = catalogWhereSQL(from: whereClauses)
+        let pattern = "%\(query)%"
+
+        let statement = try database.prepare("""
+            SELECT
+                \(catalogRecordSelectionSQL(alias: "r"))
+            FROM records r
+            \(whereSQL)
+            ORDER BY r.updated_at DESC
+            LIMIT ? OFFSET ?;
+            """)
+        defer { database.finalize(statement) }
+
+        var index: Int32 = 1
+        try database.bind(pattern, at: index, in: statement)
+        index += 1
+        try database.bind(pattern, at: index, in: statement)
+        index += 1
+        try database.bind(pattern, at: index, in: statement)
+        index += 1
+        try database.bind(pattern, at: index, in: statement)
+        index += 1
+        try bindCatalogFilters(filters, startingAt: &index, in: statement)
+        try database.bind(limit + 1, at: index, in: statement)
+        index += 1
+        try database.bind(offset, at: index, in: statement)
+
+        var records: [ImportRecord] = []
+        while try database.step(statement) == SQLITE_ROW {
+            records.append(try decodeRecord(from: statement))
+        }
+
+        let hasMore = records.count > limit
+        if hasMore {
+            records = Array(records.prefix(limit))
+        }
+
+        return RecordCatalogPage(items: records, limit: limit, offset: offset, hasMore: hasMore)
+    }
+
+    private func catalogRecordSelectionSQL(alias: String? = nil) -> String {
+        let prefix = alias.map { "\($0)." } ?? ""
+        return """
+        \(prefix)id,
+        \(prefix)asset_path,
+        \(prefix)asset_hash,
+        \(prefix)file_name,
+        \(prefix)mime_type,
+        \(prefix)source_kind,
+        \(prefix)content_type,
+        \(prefix)scene,
+        \(prefix)purpose,
+        \(prefix)title,
+        \(prefix)short_summary,
+        \(prefix)useful_snippets_json,
+        \(prefix)tags_json,
+        \(prefix)structured_data_json,
+        \(prefix)search_text,
+        \(prefix)user_supplement,
+        \(prefix)clarification_request_json,
+        \(prefix)clarification_history_json,
+        \(prefix)clarification_round_count,
+        \(prefix)needs_review,
+        \(prefix)embedding_json,
+        \(prefix)parse_status,
+        \(prefix)created_at,
+        \(prefix)updated_at,
+        \(prefix)import_count
+        """
+    }
+
+    private func catalogFilterClauses(
+        for filters: RecordCatalogFilters,
+        recordAlias: String?
+    ) -> [String] {
+        let prefix = recordAlias.map { "\($0)." } ?? ""
+        var clauses: [String] = []
+
+        if filters.purpose != nil {
+            clauses.append("\(prefix)purpose = ?")
+        }
+
+        if filters.needsReview != nil {
+            clauses.append("\(prefix)needs_review = ?")
+        }
+
+        if !filters.sourceKinds.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.sourceKinds.count).joined(separator: ", ")
+            clauses.append("\(prefix)source_kind IN (\(placeholders))")
+        }
+
+        if !filters.tagsAny.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.tagsAny.count).joined(separator: ", ")
+            clauses.append(
+                "EXISTS (SELECT 1 FROM json_each(\(prefix)tags_json) AS tag WHERE tag.value IN (\(placeholders)))"
+            )
+        }
+
+        return clauses
+    }
+
+    private func catalogWhereSQL(from clauses: [String]) -> String {
+        guard !clauses.isEmpty else { return "" }
+        return "WHERE " + clauses.joined(separator: " AND ")
+    }
+
+    private func bindCatalogFilters(
+        _ filters: RecordCatalogFilters,
+        startingAt index: inout Int32,
+        in statement: OpaquePointer?
+    ) throws {
+        if let purpose = filters.purpose {
+            try database.bind(purpose, at: index, in: statement)
+            index += 1
+        }
+
+        if let needsReview = filters.needsReview {
+            try database.bind(needsReview ? 1 : 0, at: index, in: statement)
+            index += 1
+        }
+
+        for sourceKind in filters.sourceKinds {
+            try database.bind(sourceKind.rawValue, at: index, in: statement)
+            index += 1
+        }
+
+        for tag in filters.tagsAny {
+            try database.bind(tag, at: index, in: statement)
+            index += 1
+        }
     }
 
     private func tokenize(_ query: String) -> [String] {

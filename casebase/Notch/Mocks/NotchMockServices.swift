@@ -72,6 +72,43 @@ final class MockImportCoordinator: ImportCoordinator {
         return record
     }
 
+    func finalizeRecordWithoutClarification(
+        id: UUID,
+        skippedQuestionTitles: [String],
+        progress: ImportProgressHandler?
+    ) async throws -> ImportRecord {
+        progress?(ImportProgressUpdate(phase: .preparing))
+        try await Task.sleep(nanoseconds: 140_000_000)
+
+        guard var record = records[id] else {
+            throw CasebaseError.recordNotFound(id)
+        }
+
+        let resolvedSkippedQuestionTitles = skippedQuestionTitles
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if !resolvedSkippedQuestionTitles.isEmpty {
+            record.clarificationHistory.append(
+                ClarificationRound(
+                    roundIndex: record.clarificationRoundCount + 1,
+                    answers: [],
+                    skippedQuestionTitles: resolvedSkippedQuestionTitles
+                )
+            )
+            record.clarificationRoundCount += 1
+        }
+
+        record.clarificationRequest = nil
+        record.needsReview = false
+        record.updatedAt = Date()
+
+        progress?(ImportProgressUpdate(phase: .storing))
+        try await Task.sleep(nanoseconds: 140_000_000)
+        records[id] = record
+        return record
+    }
+
     private func buildRecord(for payload: ImportPayload) -> ImportRecord {
         let now = Date()
         let title: String
@@ -205,9 +242,13 @@ final class MockAnswerService: AnswerService {
         self.records = records
     }
 
-    func answer(question: String, limit _: Int) async throws -> AnswerResult {
-        try await Task.sleep(nanoseconds: 850_000_000)
-
+    func answer(
+        question: String,
+        scope _: AnswerQueryScope,
+        limit _: Int,
+        streamHandler: AnswerStreamHandler?,
+        thoughtHandler: AIThoughtHandler?
+    ) async throws -> AnswerResult {
         guard let record = records.first else {
             return AnswerResult(
                 answerText: emptyKnowledgeAnswer,
@@ -238,11 +279,28 @@ final class MockAnswerService: AnswerService {
             answerText = genericSavedRecordAnswer
         }
 
+        thoughtHandler?(CasebasePromptCatalog.language == .simplifiedChinese ? "正在梳理相关资料…" : "Reviewing the matching records…")
+
+        if let streamHandler {
+            var visible = ""
+            for character in answerText {
+                visible.append(character)
+                streamHandler(visible)
+                try await Task.sleep(nanoseconds: 18_000_000)
+            }
+        } else {
+            try await Task.sleep(nanoseconds: 850_000_000)
+        }
+
         let citation = AnswerCitation(
             id: record.id,
+            sourceKind: record.sourceKind,
             title: record.title,
             shortSummary: record.shortSummary,
-            relevantSnippet: record.usefulSnippets.first
+            sourceTags: record.tags,
+            evidenceExcerpt: record.usefulSnippets.first,
+            previewAssetPath: nil,
+            openTarget: record.assetPath
         )
 
         return AnswerResult(

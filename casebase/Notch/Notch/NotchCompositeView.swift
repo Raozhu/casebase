@@ -69,6 +69,7 @@ struct NotchCompositeView: View {
             NotchHoverActionsView(
                 onOpenLibrary: viewModel.openLibrary,
                 onOpenSettings: viewModel.openSettings,
+                onOpenSearch: viewModel.openSearch,
                 showsSelectionCapturePrompt: !viewModel.selectionCaptureAuthorized,
                 onAuthorizeSelectionCapture: viewModel.openSelectionCaptureAccessibilitySettings,
                 showsScreenRecordingPrompt: !viewModel.screenshotCaptureAuthorized,
@@ -120,12 +121,10 @@ struct NotchCompositeView: View {
             )
         case .savedPreview:
             NotchSavedPreviewView(viewModel: viewModel)
+        case .search:
+            NotchAnswerResultView(viewModel: viewModel)
         case .answering:
-            NotchImportProgressView(
-                title: CasebasePromptCatalog.ui.answeringTitle,
-                detail: CasebasePromptCatalog.ui.answeringDetail,
-                footnote: nil
-            )
+            NotchAnswerResultView(viewModel: viewModel)
         case .answerReady:
             NotchAnswerResultView(viewModel: viewModel)
         case .error:
@@ -146,7 +145,7 @@ struct NotchCompositeView: View {
 
     private var showsChromeSettingsButton: Bool {
         switch viewModel.surfaceState {
-        case .idle, .hoverActions, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .savedPreview:
+        case .idle, .hoverActions, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .savedPreview, .search:
             return false
         case .ingesting, .answering, .answerReady, .error:
             return true

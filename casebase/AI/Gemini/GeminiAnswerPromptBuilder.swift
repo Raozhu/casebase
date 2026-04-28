@@ -1,12 +1,28 @@
 import Foundation
 
 enum GeminiAnswerPromptBuilder {
-    static func answerPrompt(question: String, hits: [SearchHit], policy: AnswerPolicy) -> String {
-        CasebasePromptCatalog.ai.answerPrompt(question: question, hits: hits, policy: policy)
+    static func answerContents(
+        question: String,
+        sources: [AnswerEvidencePacket],
+        policy: AnswerPolicy
+    ) throws -> [GeminiJSONObject] {
+        try GeminiAnswerContentEncoder.encodeAnswerContents(
+            question: question,
+            sources: sources,
+            policy: policy
+        )
     }
 
-    static func attributionPrompt(question: String, answerText: String, hits: [SearchHit]) -> String {
-        CasebasePromptCatalog.ai.attributionPrompt(question: question, answerText: answerText, hits: hits)
+    static func attributionContents(
+        question: String,
+        answerText: String,
+        sources: [AnswerEvidencePacket]
+    ) throws -> [GeminiJSONObject] {
+        try GeminiAnswerContentEncoder.encodeAttributionContents(
+            question: question,
+            answerText: answerText,
+            sources: sources
+        )
     }
 
     static var attributionJSONSchema: GeminiJSONObject { CasebasePromptCatalog.ai.attributionJSONSchema }

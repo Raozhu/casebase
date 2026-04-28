@@ -55,12 +55,19 @@ final class AudioExtractor: Extractor {
             mimeType: resolution.mimeType
         )
 
+        let transcriptionStartedAt = Date()
+        CasebaseDebugLogger.log(
+            "audio extractor transcription started file=\"\(filePayload.fileURL.lastPathComponent)\""
+        )
         do {
             let transcription = try await transcriber.transcribe(
                 fileURL: filePayload.fileURL,
                 mimeType: resolution.mimeType
             )
             let normalizedTranscript = transcription.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            CasebaseDebugLogger.log(
+                "audio extractor transcription finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: transcriptionStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" transcriptChars=\(normalizedTranscript.count)"
+            )
             metadata["transcriptionSucceeded"] = String(!normalizedTranscript.isEmpty)
             if let language = transcription.language, !language.isEmpty {
                 metadata["transcriptionLanguage"] = language
@@ -73,6 +80,10 @@ final class AudioExtractor: Extractor {
                 fallbackMetadata: metadata
             )
         } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            CasebaseDebugLogger.log(
+                "audio extractor transcription failed elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: transcriptionStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" error=\(message)"
+            )
             metadata["transcriptionSucceeded"] = "false"
             metadata["transcriptionError"] = String(describing: error.localizedDescription)
             return NormalizedContent(

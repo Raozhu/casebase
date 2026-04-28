@@ -25,4 +25,8 @@ enum CasebaseDebugLogger {
             try? data.write(to: logURL, options: .atomic)
         }
     }
+
+    static func elapsedMilliseconds(since startDate: Date) -> Int {
+        Int(Date().timeIntervalSince(startDate) * 1_000)
+    }
 }

@@ -72,6 +72,10 @@ final class PDFExtractor: Extractor {
         metadata["isTextBased"] = String((normalizedText?.isEmpty == false))
         metadata.merge(filePayload.contextMetadata) { _, new in new }
 
+        let previewStartedAt = Date()
+        CasebaseDebugLogger.log(
+            "pdf extractor preview started file=\"\(filePayload.fileURL.lastPathComponent)\" pageCount=\(document.pageCount) requestedPreviewCount=\(requestedPreviewCount)"
+        )
         do {
             let previewAttachments = try previewRenderer.renderPreviewAttachments(
                 for: document,
@@ -80,9 +84,16 @@ final class PDFExtractor: Extractor {
             )
             attachments.append(contentsOf: previewAttachments)
             metadata["generatedPreviewCount"] = String(previewAttachments.count)
+            CasebaseDebugLogger.log(
+                "pdf extractor preview finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: previewStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" generatedPreviewCount=\(previewAttachments.count)"
+            )
         } catch {
             metadata["generatedPreviewCount"] = "0"
             metadata["previewGenerationError"] = String(describing: error.localizedDescription)
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            CasebaseDebugLogger.log(
+                "pdf extractor preview failed elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: previewStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" error=\(message)"
+            )
         }
 
         return NormalizedContent(

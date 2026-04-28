@@ -144,9 +144,15 @@ enum ImportProcessingPhase: String, Codable, Hashable {
 struct ImportProgressUpdate: Codable, Hashable, Sendable {
     let phase: ImportProcessingPhase
     let thoughtText: String?
+    let detailText: String?
 
-    init(phase: ImportProcessingPhase, thoughtText: String? = nil) {
+    init(
+        phase: ImportProcessingPhase,
+        thoughtText: String? = nil,
+        detailText: String? = nil
+    ) {
         self.phase = phase
         self.thoughtText = thoughtText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.detailText = detailText?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

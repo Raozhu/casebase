@@ -2,12 +2,53 @@ import SwiftUI
 
 struct NotchQuestionComposerView: View {
     @Binding var question: String
+    let placeholder: String
     let isBusy: Bool
+    let leadingIcon: NotchPixelIcon?
+    let leadingActionTitle: String?
+    let leadingActionTint: Color
+    let isLeadingActionDisabled: Bool
+    let onLeadingAction: (() -> Void)?
     let onSubmit: () -> Void
+
+    init(
+        question: Binding<String>,
+        placeholder: String,
+        isBusy: Bool,
+        leadingIcon: NotchPixelIcon? = nil,
+        leadingActionTitle: String? = nil,
+        leadingActionTint: Color = Color.white.opacity(0.74),
+        isLeadingActionDisabled: Bool = false,
+        onLeadingAction: (() -> Void)? = nil,
+        onSubmit: @escaping () -> Void
+    ) {
+        _question = question
+        self.placeholder = placeholder
+        self.isBusy = isBusy
+        self.leadingIcon = leadingIcon
+        self.leadingActionTitle = leadingActionTitle
+        self.leadingActionTint = leadingActionTint
+        self.isLeadingActionDisabled = isLeadingActionDisabled
+        self.onLeadingAction = onLeadingAction
+        self.onSubmit = onSubmit
+    }
 
     var body: some View {
         HStack(spacing: 10) {
-            TextField(CasebasePromptCatalog.ui.composerPlaceholder, text: $question)
+            if let leadingIcon, let onLeadingAction {
+                Button(action: onLeadingAction) {
+                    NotchPixelIconView(
+                        icon: leadingIcon,
+                        color: leadingActionTint,
+                        size: 12
+                    )
+                }
+                .buttonStyle(NotchChromeIconButtonStyle())
+                .disabled(isBusy || isLeadingActionDisabled)
+                .help(leadingActionTitle ?? "")
+            }
+
+            TextField(placeholder, text: $question)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .foregroundStyle(.white)
@@ -15,10 +56,10 @@ struct NotchQuestionComposerView: View {
                 .onSubmit(onSubmit)
 
             Button(action: onSubmit) {
-                Text(CasebasePromptCatalog.ui.composerSubmitButton)
-                    .font(.system(size: 12, weight: .medium))
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 13, weight: .semibold))
             }
-            .buttonStyle(NotchActionButtonStyle(prominent: true))
+            .buttonStyle(NotchCircularSendButtonStyle())
             .disabled(isBusy || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(.horizontal, 12)
@@ -31,6 +72,18 @@ struct NotchQuestionComposerView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         }
+    }
+}
+
+struct NotchCircularSendButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Color.black.opacity(configuration.isPressed ? 0.78 : 1))
+            .frame(width: 30, height: 30)
+            .background(
+                Circle()
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.82 : 1))
+            )
     }
 }
 

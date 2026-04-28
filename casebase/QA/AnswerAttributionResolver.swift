@@ -1,35 +1,56 @@
 import Foundation
 
 struct AnswerAttributionResolver {
-    func resolveCitations(from hits: [SearchHit], citedIndexes: [Int]) -> ([UUID], [AnswerCitation]) {
+    struct CitationSupport: Hashable {
+        let index: Int
+        let supportNote: String
+    }
+
+    func resolveCitations(
+        from sources: [AnswerEvidencePacket],
+        citedSources: [CitationSupport]
+    ) -> ([UUID], [AnswerCitation]) {
         var resolvedIDs: [UUID] = []
         var citations: [AnswerCitation] = []
         var seen = Set<UUID>()
 
-        for index in citedIndexes {
-            let hitIndex = index - 1
-            guard hits.indices.contains(hitIndex) else {
+        for support in citedSources {
+            let sourceIndex = support.index - 1
+            guard sources.indices.contains(sourceIndex) else {
                 continue
             }
 
-            let hit = hits[hitIndex]
-            let record = hit.record
+            let source = sources[sourceIndex]
+            let record = source.record
             guard seen.insert(record.id).inserted else {
                 continue
             }
 
-            let relevantSnippet = hit.matchedSnippets.first ?? record.usefulSnippets.first
             resolvedIDs.append(record.id)
             citations.append(
                 AnswerCitation(
                     id: record.id,
+                    sourceKind: record.sourceKind,
                     title: record.title,
                     shortSummary: record.shortSummary,
-                    relevantSnippet: relevantSnippet
+                    sourceTags: record.tags,
+                    evidenceExcerpt: source.evidenceExcerpt,
+                    previewAssetPath: source.previewAssetPath,
+                    openTarget: source.openTarget,
+                    supportNote: support.supportNote.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
             )
         }
 
         return (resolvedIDs, citations)
+    }
+
+    func fallbackCitations(from sources: [AnswerEvidencePacket]) -> ([UUID], [AnswerCitation]) {
+        resolveCitations(
+            from: sources,
+            citedSources: sources.enumerated().map { offset, _ in
+                CitationSupport(index: offset + 1, supportNote: "")
+            }
+        )
     }
 }

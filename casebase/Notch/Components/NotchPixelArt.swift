@@ -60,6 +60,7 @@ enum NotchPixelIcon {
     case chevronLeft
     case chevronRight
     case arrowRight
+    case arrowUp
     case replyAll
     case skip
     case refresh
@@ -194,6 +195,16 @@ enum NotchPixelIcon {
                 "0001100",
                 "0001000",
                 "0000000",
+            ]
+        case .arrowUp:
+            return [
+                "0001000",
+                "0011100",
+                "0111110",
+                "0001000",
+                "0001000",
+                "0001000",
+                "0001000",
             ]
         case .replyAll:
             return [
@@ -549,6 +560,11 @@ private extension NotchPixelIcon {
         case .arrowRight:
             return NotchSVGSymbol(
                 pathData: "M4 11v2h12v2h2v-2h2v-2h-2V9h-2v2H4zm10-4h2v2h-2V7zm0 0h-2V5h2v2zm0 10h2v-2h-2v2zm0 0h-2v2h2v-2z",
+                renderingMode: .fill
+            )
+        case .arrowUp:
+            return NotchSVGSymbol(
+                pathData: "M11 20h2V8h2V6h2V4h-2V2h-2v2h-2v2H9v2h2v12zm-4-8h2v2H7v-2zm8 0h2v2h-2v-2z",
                 renderingMode: .fill
             )
         case .replyAll:

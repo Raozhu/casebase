@@ -116,3 +116,64 @@ casebase 追求的是“尽量少打断”的使用方式：
 ## 开发运行
 
 如果你是开发者，可以直接打开 `casebase.xcodeproj` 运行 `casebase` target。
+
+## 本地只读 MCP Companion
+
+`casebase` 现在附带一个本机运行的只读 `stdio` MCP companion：`casebase-mcp`。
+
+它只暴露本地资料库里的元信息和真实文件绝对路径，例如：
+
+- 数据列表
+- 本地搜索结果
+- 标签、用途、场景、摘要
+- 每条记录对应的本地绝对路径
+
+它不会上传文件，不会通过 MCP 传输文件内容，也不会使用远端服务器。
+
+### v1 能做什么
+
+当前只提供 3 个只读 tools：
+
+- `casebase_list_records`
+- `casebase_search_records`
+- `casebase_get_record`
+
+返回结果只包含元数据和本地路径，不返回文件字节内容，也不返回 embedding。
+
+### 启动方式
+
+打包后的推荐命令路径：
+
+- GUI app: `/Users/rao/data/ai/casebase/dist/casebase.app`
+- MCP executable: `/Users/rao/data/ai/casebase/dist/casebase-mcp`
+
+`casebase-mcp` 通过 `stdio` 提供服务，适合配置到支持 MCP stdio 的 AI 客户端中。
+
+示例：
+
+```json
+{
+  "mcpServers": {
+    "casebase": {
+      "command": "/Users/rao/data/ai/casebase/dist/casebase-mcp",
+      "env": {
+        "CASEBASE_STORAGE_ROOT": "/Users/you/Library/Application Support/casebase"
+      }
+    }
+  }
+}
+```
+
+### 环境变量
+
+- `CASEBASE_STORAGE_ROOT`
+  用于覆盖默认资料库目录。未设置时默认读取 `~/Library/Application Support/casebase`
+- `CASEBASE_API_KEY`
+  `casebase-mcp` v1 不要求这个变量；浏览本地资料不应被 AI 配置阻塞
+
+### 架构说明
+
+- v1 完全不使用远端服务器
+- 不会改动你服务器上的现有项目
+- 其他 AI 工具必须和 `casebase` 数据运行在同一台 Mac 上
+- 如果客户端不在这台 Mac 上，即使拿到本地路径也无法直接读取文件；这是架构限制，不是 bug

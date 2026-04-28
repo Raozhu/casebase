@@ -39,6 +39,11 @@ final class NotchViewModel: ObservableObject {
         case answerQuestion(String)
     }
 
+    enum QuestionContext: Equatable {
+        case globalSearch
+        case savedRecord
+    }
+
     let hoverInset: CGFloat = -16
     let hoverRange: CGFloat = 32
     let contentPadding: CGFloat = 16
@@ -52,6 +57,8 @@ final class NotchViewModel: ObservableObject {
     let libraryDetailMaxPanelHeight: CGFloat = 548
     let savedPreviewPreferredPanelHeight: CGFloat = 404
     let savedPreviewMaxPanelHeight: CGFloat = 488
+    let searchPreferredPanelHeight: CGFloat = 372
+    let searchMaxPanelHeight: CGFloat = 540
     let taskPanelPreferredPanelHeight: CGFloat = 372
     let taskPanelMaxPanelHeight: CGFloat = 520
     let taskRailSpacing: CGFloat = 8
@@ -59,20 +66,40 @@ final class NotchViewModel: ObservableObject {
     let taskRailResultDurationNs: UInt64 = 2_000_000_000
     let intakeFeedbackDurationNs: UInt64 = 520_000_000
     let maxClarificationRounds = 3
+    let importOperationTimeoutSeconds: TimeInterval = 90
 
     @Published private(set) var surfaceState: CasebaseSurfaceState = .idle
     @Published private(set) var isDropTargeted = false
     @Published private(set) var isPinnedExpanded = false
     @Published private(set) var activeRecord: ImportRecord?
     @Published private(set) var latestAnswer: AnswerResult?
+    @Published private(set) var streamingAnswerText = ""
+    @Published private(set) var answerThinkingText = "" {
+        didSet {
+            refreshAnswerThinkingPlaceholderState()
+        }
+    }
+    @Published private(set) var isWaitingForAnswerStream = false
+    @Published private(set) var questionContext: QuestionContext? {
+        didSet {
+            refreshAnswerThinkingPlaceholderState()
+        }
+    }
     @Published private(set) var libraryRecords: [ImportRecord] = []
     @Published private(set) var selectedLibraryRecord: ImportRecord?
     @Published private(set) var selectedLibraryTaskID: UUID?
+    @Published private(set) var searchConversations: [NotchSearchConversation] = []
+    @Published private(set) var activeSearchConversationID: UUID?
+    @Published private(set) var searchConversationListVisible = true
     @Published var draftQuestion = ""
     @Published private(set) var errorMessage: String?
     @Published private(set) var libraryErrorMessage: String?
     @Published private(set) var noticeMessage: String?
-    @Published private(set) var isBusy = false
+    @Published private(set) var isBusy = false {
+        didSet {
+            refreshAnswerThinkingPlaceholderState()
+        }
+    }
     @Published private(set) var isLibraryLoading = false
     @Published private(set) var isDeletingLibraryRecord = false
     @Published private(set) var intakeFeedbackMessage: String?
@@ -88,8 +115,10 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var isDismissed = false
     @Published private(set) var isClearingStoredData = false
     @Published private(set) var selectedFailedTaskID: UUID?
+    @Published private(set) var pendingClarificationCancellationTaskID: UUID?
     @Published private(set) var suppressHoverUntilMouseExit = false
     @Published private(set) var recognizingPlaceholderText = ""
+    @Published private(set) var answerThinkingPlaceholderText = ""
 
     @Published private(set) var status: Status = .collapsed
     @Published var displayCutoutRect: CGRect
@@ -111,6 +140,9 @@ final class NotchViewModel: ObservableObject {
     private var restoredSurfaceStateBeforeLibrary: CasebaseSurfaceState = .hoverActions
     private var restoredStatusBeforeLibrary: Status = .expanded
     private var restoredPinnedStateBeforeLibrary = false
+    private var restoredSurfaceStateBeforeSearch: CasebaseSurfaceState = .hoverActions
+    private var restoredStatusBeforeSearch: Status = .expanded
+    private var restoredPinnedStateBeforeSearch = false
     private var restoredSurfaceStateBeforeTaskPanel: CasebaseSurfaceState = .idle
     private var restoredStatusBeforeTaskPanel: Status = .collapsed
     private var restoredPinnedStateBeforeTaskPanel = false
@@ -121,9 +153,11 @@ final class NotchViewModel: ObservableObject {
     private var finalSuccessTask: Task<Void, Never>?
     private var taskRailResultTask: Task<Void, Never>?
     private var recognizingPlaceholderTask: Task<Void, Never>?
+    private var answerThinkingPlaceholderTask: Task<Void, Never>?
     private var finalSuccessVisible = false
     private var transientResultRailVisible = false
     private var measuredExpandedContentHeights: [CasebaseSurfaceState: CGFloat] = [:]
+    private let searchConversationStoreFileName = "explore_conversations.json"
     private static let chineseLibraryTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -175,6 +209,7 @@ final class NotchViewModel: ObservableObject {
         }
 
         refreshShortcutPermissions()
+        loadSearchConversations()
     }
 
     var isExpanded: Bool {
@@ -237,6 +272,8 @@ final class NotchViewModel: ObservableObject {
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: surfaceState, minimum: minimumHeight))
         case .savedPreview:
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: .savedPreview, minimum: 260))
+        case .search:
+            return CGSize(width: 560, height: adaptiveExpandedHeight(for: .search, minimum: 320))
         case .answering:
             return CGSize(width: 560, height: adaptiveExpandedHeight(for: .answering, minimum: 320))
         case .answerReady:
@@ -270,7 +307,140 @@ final class NotchViewModel: ObservableObject {
     }
 
     var allowsQuestionInput: Bool {
-        surfaceState == .savedPreview || surfaceState == .answerReady
+        surfaceState == .savedPreview || surfaceState == .search || surfaceState == .answerReady
+    }
+
+    var answerComposerPlaceholder: String {
+        switch questionContext {
+        case .globalSearch:
+            return CasebasePromptCatalog.ui.searchComposerPlaceholder
+        case .savedRecord, .none:
+            return CasebasePromptCatalog.ui.composerPlaceholder
+        }
+    }
+
+    var answerPanelTitle: String {
+        switch questionContext {
+        case .globalSearch:
+            return CasebasePromptCatalog.ui.searchPanelTitle
+        case .savedRecord:
+            return activeRecord?.title ?? CasebasePromptCatalog.ui.savedLabel
+        case .none:
+            return CasebasePromptCatalog.ui.answerLabel
+        }
+    }
+
+    var answerPanelDetail: String {
+        switch questionContext {
+        case .globalSearch:
+            return ""
+        case .savedRecord:
+            return activeRecord?.shortSummary ?? ""
+        case .none:
+            return ""
+        }
+    }
+
+    var answerPanelMetaLine: String? {
+        guard questionContext == .savedRecord, let activeRecord else {
+            return nil
+        }
+        return "\(activeRecord.scene) · \(activeRecord.purpose)"
+    }
+
+    var answerPanelShowsBackButton: Bool {
+        questionContext != nil
+    }
+
+    var activeSearchConversation: NotchSearchConversation? {
+        guard let activeSearchConversationID else { return nil }
+        return searchConversations.first(where: { $0.id == activeSearchConversationID })
+    }
+
+    var orderedSearchConversations: [NotchSearchConversation] {
+        searchConversations.sorted { lhs, rhs in
+            if lhs.updatedAt == rhs.updatedAt {
+                return lhs.createdAt > rhs.createdAt
+            }
+            return lhs.updatedAt > rhs.updatedAt
+        }
+    }
+
+    var activeSearchConversationTurns: [NotchSearchConversationTurn] {
+        activeSearchConversation?.turns ?? []
+    }
+
+    var activeSearchConversationSummary: String? {
+        guard let conversation = activeSearchConversation else { return nil }
+        return conversation.title
+    }
+
+    var activeSearchConversationTags: [String] {
+        guard questionContext == .globalSearch,
+              !searchConversationListVisible,
+              let conversation = activeSearchConversation
+        else {
+            return []
+        }
+
+        return topTags(for: conversation)
+    }
+
+    var activeSearchAnswer: AnswerResult? {
+        if let latestAnswer {
+            return latestAnswer
+        }
+        return activeSearchConversation?.turns.last?.answer
+    }
+
+    var activeSearchPendingQuestion: String? {
+        guard questionContext == .globalSearch, isBusy else { return nil }
+        let trimmed = (lastSubmittedQuestion ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var showsSearchConversationList: Bool {
+        questionContext == .globalSearch && searchConversationListVisible
+    }
+
+    var showsSearchConversationDeleteButton: Bool {
+        questionContext == .globalSearch && !searchConversationListVisible && activeSearchConversation != nil
+    }
+
+    var showsSearchConversationListButton: Bool {
+        questionContext == .globalSearch && !searchConversationListVisible && !orderedSearchConversations.isEmpty
+    }
+
+    var answerDisplayText: String? {
+        if questionContext == .globalSearch,
+           !isBusy,
+           let answerText = activeSearchConversation?.turns.last?.answer.answerText,
+           !answerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            return answerText
+        }
+
+        if let latestAnswer {
+            return latestAnswer.answerText
+        }
+
+        let trimmedStreaming = streamingAnswerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedStreaming.isEmpty {
+            return trimmedStreaming
+        }
+
+        return nil
+    }
+
+    var answerThinkingDisplayText: String {
+        let trimmed = answerThinkingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+        if !answerThinkingPlaceholderText.isEmpty {
+            return answerThinkingPlaceholderText
+        }
+        return localizedPreviewLabel(chinese: "正在思考中…", english: "Thinking…")
     }
 
     var canOpenDataResetConfirmation: Bool {
@@ -305,6 +475,9 @@ final class NotchViewModel: ObservableObject {
     var collapsedIndicator: CollapsedIndicator? {
         if !failedTasks.isEmpty || (surfaceState == .error && errorMessage != nil) {
             return .error
+        }
+        if isAnswerRailActive {
+            return .recognizing
         }
         if let taskIndicator = currentCollapsedTaskIndicator {
             return taskIndicator
@@ -347,12 +520,22 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    private var isAnswerRailActive: Bool {
+        questionContext != nil
+            && isBusy
+            && isWaitingForAnswerStream
+            && errorMessage == nil
+    }
+
     var showsTaskRail: Bool {
         guard status == .collapsed else {
             return false
         }
         guard surfaceState != .dropTarget, surfaceState != .intakeFeedback else {
             return false
+        }
+        if isAnswerRailActive {
+            return true
         }
         guard (unfinishedTaskCount > 0 || finalSuccessVisible) && failedTasks.isEmpty && errorMessage == nil else {
             return false
@@ -376,6 +559,10 @@ final class NotchViewModel: ObservableObject {
     }
 
     var taskRailState: NotchTaskRailState {
+        if isAnswerRailActive {
+            return .recognizing
+        }
+
         if finalSuccessVisible, unfinishedTaskCount == 0 {
             return .success
         }
@@ -406,6 +593,10 @@ final class NotchViewModel: ObservableObject {
             return failedTasks.count >= 10 ? "9+" : "\(failedTasks.count)"
         }
 
+        if isAnswerRailActive {
+            return nil
+        }
+
         guard showsTaskRail else { return nil }
         switch taskRailState {
         case .preparing, .recognizing, .storing:
@@ -416,6 +607,16 @@ final class NotchViewModel: ObservableObject {
     }
 
     var taskRailDisplayText: String {
+        if isAnswerRailActive {
+            if let condensed = condensedThinkingText(from: answerThinkingText) {
+                return condensed
+            }
+            if !answerThinkingPlaceholderText.isEmpty {
+                return answerThinkingPlaceholderText
+            }
+            return localizedPreviewLabel(chinese: "正在思考中…", english: "Thinking…")
+        }
+
         if finalSuccessVisible, unfinishedTaskCount == 0 {
             return localizedPreviewLabel(chinese: "已完成入库", english: "Saved to casebase")
         }
@@ -450,6 +651,10 @@ final class NotchViewModel: ObservableObject {
     }
 
     var taskRailShowsShimmer: Bool {
+        if isAnswerRailActive {
+            return true
+        }
+
         switch taskRailState {
         case .recognizing:
             return true
@@ -513,6 +718,10 @@ final class NotchViewModel: ObservableObject {
             return nil
         }
 
+        return condensedThinkingText(from: rawText)
+    }
+
+    private func condensedThinkingText(from rawText: String) -> String? {
         let normalized = rawText
             .replacingOccurrences(of: #"[*`_>#-]+"#, with: " ", options: .regularExpression)
             .replacingOccurrences(of: "\n", with: " ")
@@ -572,6 +781,50 @@ final class NotchViewModel: ObservableObject {
         recognizingPlaceholderTask = nil
         if resetText {
             recognizingPlaceholderText = ""
+        }
+    }
+
+    private var needsAnswerThinkingPlaceholder: Bool {
+        guard questionContext != nil, isBusy else { return false }
+        return condensedThinkingText(from: answerThinkingText) == nil
+    }
+
+    private func refreshAnswerThinkingPlaceholderState() {
+        guard needsAnswerThinkingPlaceholder else {
+            stopAnswerThinkingPlaceholder(resetText: true)
+            return
+        }
+
+        if answerThinkingPlaceholderText.isEmpty {
+            answerThinkingPlaceholderText = nextRecognizingPlaceholder(excluding: nil)
+        }
+
+        guard answerThinkingPlaceholderTask == nil else { return }
+        answerThinkingPlaceholderTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                let delay = UInt64.random(in: 1_000_000_000 ... 3_000_000_000)
+                try? await Task.sleep(nanoseconds: delay)
+
+                guard !Task.isCancelled else { return }
+                guard self.needsAnswerThinkingPlaceholder else {
+                    self.stopAnswerThinkingPlaceholder(resetText: true)
+                    return
+                }
+
+                self.answerThinkingPlaceholderText = self.nextRecognizingPlaceholder(
+                    excluding: self.answerThinkingPlaceholderText
+                )
+            }
+        }
+    }
+
+    private func stopAnswerThinkingPlaceholder(resetText: Bool) {
+        answerThinkingPlaceholderTask?.cancel()
+        answerThinkingPlaceholderTask = nil
+        if resetText {
+            answerThinkingPlaceholderText = ""
         }
     }
 
@@ -670,7 +923,7 @@ final class NotchViewModel: ObservableObject {
             restoredSurfaceState = surfaceState
             noticeMessage = nil
             errorMessage = nil
-            latestAnswer = nil
+            resetAnswerTransientState()
             intakeFeedbackMessage = nil
             isPinnedExpanded = true
             surfaceState = .dropTarget
@@ -859,7 +1112,16 @@ final class NotchViewModel: ObservableObject {
         errorMessage = nil
         lastFailedAction = nil
         if surfaceState == .error {
-            surfaceState = .hoverActions
+            switch questionContext {
+            case .globalSearch:
+                surfaceState = searchConversationListVisible || activeSearchConversationID == nil
+                    ? .search
+                    : .answerReady
+            case .savedRecord:
+                surfaceState = .savedPreview
+            case .none:
+                surfaceState = .hoverActions
+            }
         }
     }
 
@@ -951,6 +1213,108 @@ final class NotchViewModel: ObservableObject {
             guard let self else { return }
             await self.reloadLibraryRecords(using: libraryService)
         }
+    }
+
+    func openSearch() {
+        if questionContext == .globalSearch,
+           surfaceState == .search || surfaceState == .answerReady || surfaceState == .answering
+        {
+            isDismissed = false
+            isPinnedExpanded = true
+            status = .expanded
+            return
+        }
+
+        restoredSurfaceStateBeforeSearch = surfaceState
+        restoredStatusBeforeSearch = status
+        restoredPinnedStateBeforeSearch = isPinnedExpanded
+
+        isDismissed = false
+        isPinnedExpanded = true
+        activeRecord = nil
+        resetAnswerTransientState()
+        questionContext = .globalSearch
+        searchConversationListVisible = true
+        draftQuestion = ""
+        errorMessage = nil
+        noticeMessage = nil
+        surfaceState = .search
+        status = .expanded
+    }
+
+    func closeSearch() {
+        guard questionContext == .globalSearch else { return }
+
+        isDismissed = false
+        isPinnedExpanded = restoredPinnedStateBeforeSearch
+        resetAnswerTransientState()
+        activeRecord = nil
+        questionContext = nil
+        searchConversationListVisible = true
+        draftQuestion = ""
+        errorMessage = nil
+        noticeMessage = nil
+        surfaceState = restoredSurfaceStateBeforeSearch
+        status = restoredStatusBeforeSearch
+
+        if surfaceState == .hoverActions {
+            status = .expanded
+            isPinnedExpanded = true
+        }
+    }
+
+    func showSearchConversationList() {
+        guard questionContext == .globalSearch else { return }
+        resetAnswerTransientState(clearDraft: true)
+        errorMessage = nil
+        noticeMessage = nil
+        isDismissed = false
+        isPinnedExpanded = true
+        searchConversationListVisible = true
+        surfaceState = .search
+        status = .expanded
+    }
+
+    func startNewSearchConversation() {
+        guard questionContext == .globalSearch else { return }
+        resetAnswerTransientState(clearDraft: true)
+        activeSearchConversationID = nil
+        errorMessage = nil
+        noticeMessage = nil
+        isDismissed = false
+        isPinnedExpanded = true
+        searchConversationListVisible = false
+        surfaceState = .search
+        status = .expanded
+    }
+
+    func openSearchConversation(_ conversationID: UUID) {
+        guard let conversation = searchConversations.first(where: { $0.id == conversationID }) else { return }
+        activeSearchConversationID = conversation.id
+        resetAnswerTransientState(clearDraft: true)
+        latestAnswer = conversation.turns.last?.answer
+        errorMessage = nil
+        noticeMessage = nil
+        isDismissed = false
+        isPinnedExpanded = true
+        searchConversationListVisible = false
+        surfaceState = conversation.turns.isEmpty ? .search : .answerReady
+        status = .expanded
+    }
+
+    func deleteActiveSearchConversation() {
+        guard let conversationID = activeSearchConversationID else { return }
+
+        resetAnswerTransientState(clearDraft: true)
+        removeSearchConversation(id: conversationID)
+        lastSubmittedQuestion = nil
+        errorMessage = nil
+        noticeMessage = nil
+        isDismissed = false
+        isPinnedExpanded = true
+        searchConversationListVisible = true
+        surfaceState = .search
+        status = .expanded
     }
 
     func closeLibrary() {
@@ -1053,6 +1417,23 @@ final class NotchViewModel: ObservableObject {
                 self.libraryErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
+    }
+
+    func openCitationSource(_ citation: AnswerCitation) {
+        let candidateURL: URL
+        if citation.openTarget.hasPrefix("/") {
+            candidateURL = URL(fileURLWithPath: citation.openTarget)
+        } else if let storageRootDirectory {
+            candidateURL = storageRootDirectory.appendingPathComponent(citation.openTarget, isDirectory: false)
+        } else {
+            candidateURL = URL(fileURLWithPath: citation.openTarget)
+        }
+
+        guard FileManager.default.fileExists(atPath: candidateURL.path) else {
+            return
+        }
+
+        NSWorkspace.shared.open(candidateURL)
     }
 
     func deleteSelectedLibraryRecord() {
@@ -1161,6 +1542,24 @@ final class NotchViewModel: ObservableObject {
         status = .expanded
     }
 
+    func handleTaskRailTap() {
+        if questionContext != nil,
+           surfaceState == .answering || surfaceState == .answerReady || surfaceState == .search
+        {
+            isDismissed = false
+            isPinnedExpanded = true
+            status = .expanded
+            return
+        }
+
+        if firstNeedsInputTask != nil {
+            openTaskPanel()
+            return
+        }
+
+        openLibrary()
+    }
+
     func closeTaskPanel() {
         restoreAfterTaskPanel()
 
@@ -1180,7 +1579,9 @@ final class NotchViewModel: ObservableObject {
         else { return }
 
         activeRecord = record
-        latestAnswer = nil
+        resetAnswerTransientState()
+        questionContext = .savedRecord
+        draftQuestion = ""
         errorMessage = nil
         noticeMessage = nil
         isDismissed = false
@@ -1193,7 +1594,10 @@ final class NotchViewModel: ObservableObject {
         guard surfaceState == .savedPreview else { return }
         isDismissed = false
         errorMessage = nil
-        latestAnswer = nil
+        resetAnswerTransientState()
+        activeRecord = nil
+        questionContext = nil
+        draftQuestion = ""
         if ingestTasks.isEmpty {
             isPinnedExpanded = true
             surfaceState = .hoverActions
@@ -1203,6 +1607,35 @@ final class NotchViewModel: ObservableObject {
         isPinnedExpanded = true
         surfaceState = .taskPanel
         status = .expanded
+    }
+
+    func backFromAnswerPanel() {
+        switch questionContext {
+        case .globalSearch:
+            if !searchConversationListVisible, activeSearchConversation != nil {
+                showSearchConversationList()
+            } else {
+                closeSearch()
+            }
+        case .savedRecord:
+            guard activeRecord != nil else {
+                resetAnswerTransientState()
+                questionContext = nil
+                surfaceState = .hoverActions
+                status = .expanded
+                isPinnedExpanded = true
+                return
+            }
+
+            isDismissed = false
+            isPinnedExpanded = true
+            resetAnswerTransientState()
+            errorMessage = nil
+            surfaceState = .savedPreview
+            status = .expanded
+        case .none:
+            break
+        }
     }
 
     func bindingForTaskSupplement(_ taskID: UUID) -> Binding<String> {
@@ -1241,6 +1674,11 @@ final class NotchViewModel: ObservableObject {
 
     func clarificationValidationMessage(for taskID: UUID) -> String? {
         ingestTasks.first(where: { $0.id == taskID })?.clarificationValidationMessage
+    }
+
+    var clarificationCancellationTaskTitle: String? {
+        guard let pendingClarificationCancellationTaskID else { return nil }
+        return ingestTasks.first(where: { $0.id == pendingClarificationCancellationTaskID })?.title
     }
 
     func currentClarificationQuestion(for taskID: UUID) -> ClarificationQuestion? {
@@ -1295,29 +1733,93 @@ final class NotchViewModel: ObservableObject {
 
     func skipClarificationQuestion(_ taskID: UUID) {
         guard let task = ingestTasks.first(where: { $0.id == taskID }),
-              let questions = task.record?.clarificationRequest?.questions,
-              !questions.isEmpty
+              let record = task.record
         else {
             return
         }
 
-        let index = min(task.currentClarificationQuestionIndex, questions.count - 1)
-        let currentQuestion = questions[index]
+        guard let importCoordinator else {
+            markTask(
+                taskID,
+                failedWith: startupIntegrationError(fallback: CasebasePromptCatalog.errors.importServiceName).localizedDescription
+            )
+            startQueueProcessorIfNeeded()
+            return
+        }
+
+        let skippedQuestionTitles = unresolvedClarificationQuestionTitles(for: taskID)
+
+        errorMessage = nil
+        noticeMessage = nil
 
         updateTask(taskID) { task in
-            task.clarificationAnswers.removeValue(forKey: currentQuestion.id)
-            if !task.skippedClarificationQuestionIDs.contains(currentQuestion.id) {
-                task.skippedClarificationQuestionIDs.append(currentQuestion.id)
-            }
+            task.status = .storing
+            task.thinkingText = nil
             task.clarificationValidationMessage = nil
             task.updatedAt = Date()
         }
 
-        if index < questions.count - 1 {
-            goToNextClarificationQuestion(taskID)
-        } else {
-            submitClarification(taskID, allowEmptyAnswers: true)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                let finalizedRecord = try await withTaskTimeout(
+                    seconds: importOperationTimeoutSeconds,
+                    timeoutError: CasebaseError.operationTimedOut(
+                        CasebasePromptCatalog.errors.clarificationTaskTimedOut(
+                            seconds: Int(importOperationTimeoutSeconds)
+                        )
+                    )
+                ) {
+                    try await importCoordinator.finalizeRecordWithoutClarification(
+                        id: record.id,
+                        skippedQuestionTitles: skippedQuestionTitles
+                    ) { [weak self] progress in
+                        Task { @MainActor [weak self] in
+                            self?.applyProgressUpdate(progress, to: taskID)
+                        }
+                    }
+                }
+
+                self.finalizeReanalyzedRecord(finalizedRecord, for: taskID)
+
+                guard self.firstNeedsInputTask == nil else { return }
+                self.startQueueProcessorIfNeeded()
+
+                if self.unfinishedTaskCount == 0 && self.hasSuccessfulTasks {
+                    self.showFinalSuccessRail()
+                }
+            } catch {
+                self.markTask(
+                    taskID,
+                    failedWith: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                )
+                self.startQueueProcessorIfNeeded()
+            }
         }
+    }
+
+    func requestClarificationCancellation(_ taskID: UUID) {
+        guard let task = ingestTasks.first(where: { $0.id == taskID }) else { return }
+        guard case .needsInput = task.status else { return }
+        pendingClarificationCancellationTaskID = taskID
+        CasebaseDebugLogger.log("clarification cancellation requested taskID=\(taskID.uuidString)")
+    }
+
+    func dismissClarificationCancellation() {
+        pendingClarificationCancellationTaskID = nil
+    }
+
+    func confirmClarificationCancellation() {
+        guard let taskID = pendingClarificationCancellationTaskID else { return }
+        pendingClarificationCancellationTaskID = nil
+        cancelClarificationTask(taskID)
+    }
+
+    func confirmClarificationCancellation(_ taskID: UUID) {
+        pendingClarificationCancellationTaskID = nil
+        CasebaseDebugLogger.log("clarification cancellation confirmed taskID=\(taskID.uuidString)")
+        cancelClarificationTask(taskID)
     }
 
     func continueTaskAfterLowConfidence(_ taskID: UUID) {
@@ -1357,13 +1859,22 @@ final class NotchViewModel: ObservableObject {
             guard let self else { return }
 
             do {
-                let refreshedRecord = try await importCoordinator.reanalyzeRecord(
-                    id: record.id,
-                    clarificationAnswers: clarificationAnswers,
-                    skippedQuestionTitles: skippedQuestionTitles
-                ) { [weak self] progress in
-                    Task { @MainActor [weak self] in
-                        self?.applyProgressUpdate(progress, to: taskID)
+                let refreshedRecord = try await withTaskTimeout(
+                    seconds: importOperationTimeoutSeconds,
+                    timeoutError: CasebaseError.operationTimedOut(
+                        CasebasePromptCatalog.errors.clarificationTaskTimedOut(
+                            seconds: Int(importOperationTimeoutSeconds)
+                        )
+                    )
+                ) {
+                    try await importCoordinator.reanalyzeRecord(
+                        id: record.id,
+                        clarificationAnswers: clarificationAnswers,
+                        skippedQuestionTitles: skippedQuestionTitles
+                    ) { [weak self] progress in
+                        Task { @MainActor [weak self] in
+                            self?.applyProgressUpdate(progress, to: taskID)
+                        }
                     }
                 }
 
@@ -1398,7 +1909,11 @@ final class NotchViewModel: ObservableObject {
         transientResultRailVisible = false
 
         activeRecord = nil
-        latestAnswer = nil
+        resetAnswerTransientState()
+        questionContext = nil
+        searchConversations = []
+        activeSearchConversationID = nil
+        searchConversationListVisible = true
         libraryRecords = []
         selectedLibraryRecord = nil
         selectedLibraryTaskID = nil
@@ -1410,6 +1925,7 @@ final class NotchViewModel: ObservableObject {
         isBusy = false
         isLibraryLoading = false
         isDeletingLibraryRecord = false
+        pendingClarificationCancellationTaskID = nil
         isDropTargeted = false
         isPinnedExpanded = false
         lastFailedAction = nil
@@ -1428,6 +1944,7 @@ final class NotchViewModel: ObservableObject {
         selectedFailedTaskID = nil
         surfaceState = .idle
         status = .collapsed
+        deletePersistedSearchConversations()
     }
 
     func handleStoredDataCleared() {
@@ -1436,6 +1953,16 @@ final class NotchViewModel: ObservableObject {
 
     func handleRecordDeleted(_ id: UUID) {
         removeLibraryRecord(id: id)
+    }
+
+    func handleRecordsReorganized() {
+        guard let libraryService else { return }
+        guard surfaceState == .library || surfaceState == .libraryDetail else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reloadLibraryRecords(using: libraryService)
+        }
     }
 
     func libraryAssetURL(for record: ImportRecord) -> URL? {
@@ -1628,6 +2155,11 @@ final class NotchViewModel: ObservableObject {
         }
 
         ingestTasks.append(contentsOf: newTasks)
+        for task in newTasks {
+            CasebaseDebugLogger.log(
+                "import enqueued \(importTaskLogContext(task)) queueSize=\(unfinishedTaskCount)"
+            )
+        }
         finalSuccessVisible = false
         transientResultRailVisible = false
         taskRailResultTask?.cancel()
@@ -1635,7 +2167,13 @@ final class NotchViewModel: ObservableObject {
     }
 
     private func startQueueProcessorIfNeeded() {
-        guard queueProcessorTask == nil, firstNeedsInputTask == nil else { return }
+        guard queueProcessorTask == nil else { return }
+        if let firstNeedsInputTask {
+            CasebaseDebugLogger.log(
+                "import queue paused reason=awaiting-clarification blockingTask=\(importTaskLogContext(firstNeedsInputTask)) queuedTasks=\(ingestTasks.filter { if case .queued = $0.status { return true } else { return false } }.count)"
+            )
+            return
+        }
 
         queueProcessorTask = Task { @MainActor [weak self] in
             await self?.drainQueue()
@@ -1643,7 +2181,10 @@ final class NotchViewModel: ObservableObject {
     }
 
     private func drainQueue() async {
-        defer { queueProcessorTask = nil }
+        defer {
+            CasebaseDebugLogger.log("import queue drained unfinishedTasks=\(unfinishedTaskCount)")
+            queueProcessorTask = nil
+        }
 
         guard let importCoordinator else {
             presentImportError(
@@ -1652,30 +2193,88 @@ final class NotchViewModel: ObservableObject {
             return
         }
 
+        CasebaseDebugLogger.log("import queue started queuedTasks=\(ingestTasks.filter { if case .queued = $0.status { return true } else { return false } }.count)")
+
         while let task = nextQueuedTask {
             updateTask(task.id) { pendingTask in
                 pendingTask.status = .preparing
+                pendingTask.progressDetail = CasebasePromptCatalog.errors.importStageSavingAsset
             }
+            CasebaseDebugLogger.log("import dequeued \(importTaskLogContext(task))")
 
             do {
-                let record = try await importCoordinator.importPayload(task.payload) { [weak self] progress in
-                    Task { @MainActor [weak self] in
-                        self?.applyProgressUpdate(progress, to: task.id)
+                let timeoutSeconds = importOperationTimeoutSeconds
+                let record = try await withTaskTimeout(
+                    seconds: timeoutSeconds,
+                    timeoutError: CasebaseError.operationTimedOut(
+                        CasebasePromptCatalog.errors.importTaskTimedOut(
+                            seconds: Int(timeoutSeconds)
+                        )
+                    ),
+                    timeoutLabel: "task=\(task.id.uuidString) file=\(sanitizedImportLogValue(task.payload.displayName))",
+                    onTimeout: { [weak self] in
+                        await self?.recordImportTimeout(taskID: task.id, seconds: timeoutSeconds)
+                    }
+                ) {
+                    try await importCoordinator.importPayload(task.payload) { [weak self] progress in
+                        Task { @MainActor [weak self] in
+                            self?.applyProgressUpdate(progress, to: task.id)
+                        }
                     }
                 }
 
                 finalizeImportedRecord(record, for: task.id)
+                CasebaseDebugLogger.log(
+                    "import completed \(importTaskLogContext(task)) recordID=\(record.id.uuidString)"
+                )
 
                 if firstNeedsInputTask != nil {
                     break
                 }
             } catch {
-                markTask(task.id, failedWith: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+                let failureMessage = resolvedImportFailureMessage(error, for: task.id)
+                CasebaseDebugLogger.log(
+                    "import failed \(importTaskLogContext(task)) stage=\(currentImportStageDescription(for: task.id) ?? "unknown") error=\(sanitizedImportLogValue(failureMessage))"
+                )
+                markTask(task.id, failedWith: failureMessage)
             }
         }
 
         if unfinishedTaskCount == 0 && hasSuccessfulTasks {
             showFinalSuccessRail()
+        }
+    }
+
+    private func withTaskTimeout<T>(
+        seconds: TimeInterval,
+        timeoutError: Error,
+        timeoutLabel: String? = nil,
+        onTimeout: (@Sendable () async -> Void)? = nil,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+
+            group.addTask {
+                let duration = UInt64(max(seconds, 0) * 1_000_000_000)
+                try await Task.sleep(nanoseconds: duration)
+                if let timeoutLabel {
+                    CasebaseDebugLogger.log(
+                        "task timeout fired afterSeconds=\(Int(seconds.rounded())) \(timeoutLabel)"
+                    )
+                }
+                await onTimeout?()
+                throw timeoutError
+            }
+
+            let result = try await group.next()
+            group.cancelAll()
+            guard let result else {
+                throw timeoutError
+            }
+            return result
         }
     }
 
@@ -1689,28 +2288,42 @@ final class NotchViewModel: ObservableObject {
     }
 
     private func applyProgressUpdate(_ progress: ImportProgressUpdate, to taskID: UUID) {
-        updateTask(taskID) { task in
-            switch progress.phase {
-            case .preparing:
-                task.status = .preparing
-                task.thinkingText = nil
-            case .recognizing:
-                task.status = .recognizing
-                if let thoughtText = progress.thoughtText, !thoughtText.isEmpty {
-                    task.thinkingText = thoughtText
-                }
-            case .storing:
-                task.status = .storing
-                task.thinkingText = nil
+        guard let index = ingestTasks.firstIndex(where: { $0.id == taskID }) else { return }
+        let previousDetail = ingestTasks[index].progressDetail
+
+        switch progress.phase {
+        case .preparing:
+            ingestTasks[index].status = .preparing
+            ingestTasks[index].thinkingText = nil
+        case .recognizing:
+            ingestTasks[index].status = .recognizing
+            if let thoughtText = progress.thoughtText, !thoughtText.isEmpty {
+                ingestTasks[index].thinkingText = thoughtText
             }
-            task.updatedAt = Date()
+        case .storing:
+            ingestTasks[index].status = .storing
+            ingestTasks[index].thinkingText = nil
+        }
+
+        if let detailText = progress.detailText, !detailText.isEmpty {
+            ingestTasks[index].progressDetail = detailText
+        }
+        ingestTasks[index].updatedAt = Date()
+
+        if let detailText = progress.detailText,
+           !detailText.isEmpty,
+           detailText != previousDetail
+        {
+            CasebaseDebugLogger.log(
+                "import progress \(importTaskLogContext(ingestTasks[index])) phase=\(progress.phase.rawValue) detail=\(sanitizedImportLogValue(detailText))"
+            )
         }
     }
 
     private func finalizeImportedRecord(_ record: ImportRecord, for taskID: UUID) {
         activeRecord = record
         noticeMessage = nil
-        latestAnswer = nil
+        resetAnswerTransientState(clearDraft: true)
         draftQuestion = ""
         let needsClarification = requiresSupplement(for: record)
 
@@ -1718,6 +2331,7 @@ final class NotchViewModel: ObservableObject {
             task.title = record.title
             task.record = record
             task.thinkingText = nil
+            task.progressDetail = nil
             task.supplementDraft = record.userSupplement ?? ""
             task.clarificationAnswers = [:]
             task.skippedClarificationQuestionIDs = []
@@ -1763,6 +2377,95 @@ final class NotchViewModel: ObservableObject {
         if selectedFailedTaskID == nil {
             selectedFailedTaskID = taskID
         }
+    }
+
+    private func recordImportTimeout(taskID: UUID, seconds: TimeInterval) {
+        let stageDescription = currentImportStageDescription(for: taskID) ?? "unknown"
+        guard let task = ingestTasks.first(where: { $0.id == taskID }) else {
+            CasebaseDebugLogger.log(
+                "import timeout state missing taskID=\(taskID.uuidString) afterSeconds=\(Int(seconds.rounded())) stage=\(stageDescription)"
+            )
+            return
+        }
+
+        CasebaseDebugLogger.log(
+            "import timeout context \(importTaskLogContext(task)) afterSeconds=\(Int(seconds.rounded())) stage=\(sanitizedImportLogValue(stageDescription))"
+        )
+    }
+
+    private func resolvedImportFailureMessage(_ error: Error, for taskID: UUID) -> String {
+        if let casebaseError = error as? CasebaseError,
+           case .operationTimedOut = casebaseError
+        {
+            let timeoutMessage = CasebasePromptCatalog.errors.importTaskTimedOut(
+                seconds: Int(importOperationTimeoutSeconds),
+                stageDescription: currentImportStageDescription(for: taskID)
+            )
+            let timeoutError = CasebaseError.operationTimedOut(timeoutMessage)
+            return (timeoutError as LocalizedError).errorDescription ?? timeoutError.localizedDescription
+        }
+
+        return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    private func currentImportStageDescription(for taskID: UUID) -> String? {
+        guard let task = ingestTasks.first(where: { $0.id == taskID }) else { return nil }
+        return currentImportStageDescription(for: task)
+    }
+
+    private func currentImportStageDescription(for task: NotchIngestTask) -> String? {
+        if let progressDetail = task.progressDetail, !progressDetail.isEmpty {
+            return progressDetail
+        }
+
+        switch task.status {
+        case .queued:
+            return nil
+        case .preparing:
+            return CasebasePromptCatalog.errors.importStageSavingAsset
+        case .recognizing:
+            return CasebasePromptCatalog.errors.importStageExtractingContent
+        case .storing, .needsInput:
+            return CasebasePromptCatalog.errors.importStageSavingRecord
+        case .succeeded, .failed:
+            return nil
+        }
+    }
+
+    private func importTaskLogContext(_ task: NotchIngestTask) -> String {
+        "taskID=\(task.id.uuidString) file=\(quotedImportLogValue(task.payload.displayName)) sourceKind=\(task.sourceKind.rawValue) status=\(importTaskStatusLabel(task.status))"
+    }
+
+    private func importTaskStatusLabel(_ status: NotchIngestTaskStatus) -> String {
+        switch status {
+        case .queued:
+            return "queued"
+        case .preparing:
+            return "preparing"
+        case .recognizing:
+            return "recognizing"
+        case .storing:
+            return "storing"
+        case .needsInput:
+            return "needs-input"
+        case .succeeded:
+            return "succeeded"
+        case .failed:
+            return "failed"
+        }
+    }
+
+    private func quotedImportLogValue(_ value: String) -> String {
+        "\"\(sanitizedImportLogValue(value))\""
+    }
+
+    private func sanitizedImportLogValue(_ value: String, maxLength: Int = 200) -> String {
+        let normalized = value
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.count > maxLength else { return normalized }
+        return String(normalized.prefix(maxLength)) + "..."
     }
 
     private func presentClarificationPanel() {
@@ -1904,6 +2607,114 @@ final class NotchViewModel: ObservableObject {
 
         return clarificationRequest.questions.compactMap { question in
             task.skippedClarificationQuestionIDs.contains(question.id) ? question.title : nil
+        }
+    }
+
+    private func unresolvedClarificationQuestionTitles(for taskID: UUID) -> [String] {
+        guard let task = ingestTasks.first(where: { $0.id == taskID }),
+              let clarificationRequest = task.record?.clarificationRequest
+        else {
+            return []
+        }
+
+        return clarificationRequest.questions.compactMap { question in
+            let answer = task.clarificationAnswers[question.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return answer.isEmpty ? question.title : nil
+        }
+    }
+
+    private func cancelClarificationTask(_ taskID: UUID) {
+        guard let task = ingestTasks.first(where: { $0.id == taskID }) else { return }
+        let recordID = task.record?.id
+        CasebaseDebugLogger.log(
+            "clarification cancellation started taskID=\(taskID.uuidString) hasRecordID=\(recordID != nil) unfinishedBefore=\(unfinishedTaskCount)"
+        )
+
+        guard let recordID else {
+            removeCancelledTask(taskID)
+            return
+        }
+
+        guard let libraryService else {
+            markTask(
+                taskID,
+                failedWith: startupIntegrationError(fallback: CasebasePromptCatalog.errors.libraryServiceName).localizedDescription
+            )
+            return
+        }
+
+        errorMessage = nil
+        noticeMessage = nil
+
+        removeCancelledTask(taskID)
+        startQueueProcessorIfNeeded()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                try await libraryService.deleteRecord(id: recordID)
+                self.removeLibraryRecord(id: recordID)
+            } catch {
+                self.errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                CasebaseDebugLogger.log(
+                    "import clarification cancellation cleanup failed taskID=\(taskID.uuidString) recordID=\(recordID.uuidString) error=\(self.sanitizedImportLogValue(self.errorMessage ?? error.localizedDescription))"
+                )
+            }
+        }
+    }
+
+    private func removeCancelledTask(_ taskID: UUID) {
+        ingestTasks.removeAll { $0.id == taskID }
+        if selectedLibraryTaskID == taskID {
+            selectedLibraryTaskID = nil
+        }
+        if pendingClarificationCancellationTaskID == taskID {
+            pendingClarificationCancellationTaskID = nil
+        }
+        CasebaseDebugLogger.log(
+            "clarification cancellation removed taskID=\(taskID.uuidString) unfinishedAfter=\(unfinishedTaskCount) needsInputRemaining=\(firstNeedsInputTask != nil)"
+        )
+        reconcileAfterCancelledTaskRemoval()
+    }
+
+    private func reconcileAfterCancelledTaskRemoval() {
+        if firstNeedsInputTask != nil {
+            CasebaseDebugLogger.log("clarification cancellation reconcile outcome=show-next-needs-input")
+            if surfaceState == .taskPanel {
+                isDismissed = false
+                isPinnedExpanded = true
+                status = .expanded
+            }
+            return
+        }
+
+        if unfinishedTaskCount > 0 {
+            CasebaseDebugLogger.log("clarification cancellation reconcile outcome=resume-queue unfinished=\(unfinishedTaskCount)")
+            if surfaceState == .taskPanel {
+                restoreAfterTaskPanel()
+            }
+            return
+        }
+
+        finalSuccessTask?.cancel()
+        taskRailResultTask?.cancel()
+        finalSuccessTask = nil
+        taskRailResultTask = nil
+        finalSuccessVisible = false
+        transientResultRailVisible = false
+        pruneCompletedTasks()
+
+        if surfaceState == .taskPanel {
+            CasebaseDebugLogger.log("clarification cancellation reconcile outcome=collapse-idle")
+            isDismissed = false
+            isPinnedExpanded = false
+            restoredSurfaceState = .idle
+            restoredSurfaceStateBeforeTaskPanel = .idle
+            restoredStatusBeforeTaskPanel = .collapsed
+            restoredPinnedStateBeforeTaskPanel = false
+            surfaceState = .idle
+            status = .collapsed
         }
     }
 
@@ -2072,6 +2883,24 @@ final class NotchViewModel: ObservableObject {
         ingestTasks.removeAll(where: \.isCompleted)
     }
 
+    private func resetAnswerTransientState(clearDraft: Bool = false) {
+        latestAnswer = nil
+        streamingAnswerText = ""
+        answerThinkingText = ""
+        isWaitingForAnswerStream = false
+        if clearDraft {
+            draftQuestion = ""
+        }
+    }
+
+    private func revealAnswerPanelForStreamingIfNeeded() {
+        guard isWaitingForAnswerStream || isDismissed || status == .collapsed else { return }
+        isWaitingForAnswerStream = false
+        isDismissed = false
+        isPinnedExpanded = true
+        status = .expanded
+    }
+
     private func runAnswer(_ question: String) async {
         guard let answerService else {
             presentAnswerError(
@@ -2081,25 +2910,214 @@ final class NotchViewModel: ObservableObject {
             return
         }
 
+        let answerScope: AnswerQueryScope
+        let activeSearchConversationIDForAnswer: UUID?
+        switch questionContext {
+        case .savedRecord:
+            guard let activeRecord else {
+                presentAnswerError(CasebaseError.emptyQuery, question: question)
+                return
+            }
+            answerScope = .recordIDs([activeRecord.id])
+            activeSearchConversationIDForAnswer = nil
+        case .globalSearch, .none:
+            answerScope = .global
+            activeSearchConversationIDForAnswer = prepareSearchConversationIfNeeded(for: question)
+        }
+
         lastSubmittedQuestion = question
         lastFailedAction = nil
         errorMessage = nil
-        isPinnedExpanded = true
-        isDismissed = false
+        resetAnswerTransientState()
+        isPinnedExpanded = false
+        isDismissed = true
         isBusy = true
+        isWaitingForAnswerStream = true
         surfaceState = .answering
-        status = .expanded
+        status = .collapsed
 
         do {
-            let result = try await answerService.answer(question: question, limit: resultLimit)
+            let result = try await answerService.answer(
+                question: question,
+                scope: answerScope,
+                limit: resultLimit,
+                streamHandler: { [weak self] partialText in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        if !partialText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            self.revealAnswerPanelForStreamingIfNeeded()
+                        }
+                        self.streamingAnswerText = partialText
+                    }
+                },
+                thoughtHandler: { [weak self] thoughtText in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        self.answerThinkingText = thoughtText
+                    }
+                }
+            )
             latestAnswer = result
+            streamingAnswerText = result.answerText
+            answerThinkingText = ""
+            isWaitingForAnswerStream = false
+            if let activeSearchConversationIDForAnswer {
+                appendSearchConversationTurn(
+                    question: question,
+                    answer: result,
+                    to: activeSearchConversationIDForAnswer
+                )
+            }
             draftQuestion = ""
             isBusy = false
+            isDismissed = false
+            isPinnedExpanded = true
             surfaceState = .answerReady
+            status = .expanded
             lastFailedAction = nil
         } catch {
             presentAnswerError(error, question: question)
         }
+    }
+
+    private var searchConversationStoreURL: URL? {
+        storageRootDirectory?.appendingPathComponent(searchConversationStoreFileName, isDirectory: false)
+    }
+
+    private func loadSearchConversations() {
+        guard
+            let url = searchConversationStoreURL,
+            let data = try? Data(contentsOf: url)
+        else {
+            searchConversations = []
+            return
+        }
+
+        do {
+            let decoder = JSONDecoder()
+            searchConversations = try decoder.decode([NotchSearchConversation].self, from: data)
+        } catch {
+            searchConversations = []
+        }
+    }
+
+    private func persistSearchConversations() {
+        guard let url = searchConversationStoreURL else { return }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(searchConversations)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            return
+        }
+    }
+
+    private func deletePersistedSearchConversations() {
+        guard let url = searchConversationStoreURL else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    private func prepareSearchConversationIfNeeded(for question: String) -> UUID? {
+        guard questionContext == .globalSearch else { return nil }
+        searchConversationListVisible = false
+
+        if let activeSearchConversationID,
+           searchConversations.contains(where: { $0.id == activeSearchConversationID })
+        {
+            return activeSearchConversationID
+        }
+
+        let now = Date()
+        let conversation = NotchSearchConversation(
+            title: searchConversationTitle(for: question),
+            createdAt: now,
+            updatedAt: now
+        )
+        searchConversations.insert(conversation, at: 0)
+        activeSearchConversationID = conversation.id
+        persistSearchConversations()
+        return conversation.id
+    }
+
+    private func appendSearchConversationTurn(
+        question: String,
+        answer: AnswerResult,
+        to conversationID: UUID
+    ) {
+        guard let index = searchConversations.firstIndex(where: { $0.id == conversationID }) else { return }
+
+        let turn = NotchSearchConversationTurn(question: question, answer: answer)
+        var conversation = searchConversations.remove(at: index)
+        conversation.turns.append(turn)
+        conversation.updatedAt = turn.createdAt
+        if conversation.turns.count == 1 {
+            conversation.title = searchConversationTitle(for: question)
+        }
+
+        searchConversations.insert(conversation, at: 0)
+        activeSearchConversationID = conversation.id
+        persistSearchConversations()
+    }
+
+    private func searchConversationTitle(for question: String) -> String {
+        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return CasebasePromptCatalog.ui.searchPanelTitle
+        }
+
+        let limit = CasebasePromptCatalog.language == .simplifiedChinese ? 18 : 28
+        if trimmed.count <= limit {
+            return trimmed
+        }
+        return String(trimmed.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+    }
+
+    private func topTags(for conversation: NotchSearchConversation) -> [String] {
+        var counts: [String: Int] = [:]
+        var firstSeenOrder: [String: Int] = [:]
+        var nextOrder = 0
+
+        for turn in conversation.turns {
+            for citation in turn.answer.citations {
+                for rawTag in citation.sourceTags {
+                    let tag = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !tag.isEmpty else { continue }
+                    counts[tag, default: 0] += 1
+                    if firstSeenOrder[tag] == nil {
+                        firstSeenOrder[tag] = nextOrder
+                        nextOrder += 1
+                    }
+                }
+            }
+        }
+
+        return counts.keys.sorted { lhs, rhs in
+            let lhsCount = counts[lhs] ?? 0
+            let rhsCount = counts[rhs] ?? 0
+            if lhsCount != rhsCount {
+                return lhsCount > rhsCount
+            }
+            return (firstSeenOrder[lhs] ?? 0) < (firstSeenOrder[rhs] ?? 0)
+        }
+        .prefix(3)
+        .map { $0 }
+    }
+
+    private func removeSearchConversation(id: UUID) {
+        searchConversations.removeAll { $0.id == id }
+
+        if activeSearchConversationID == id {
+            activeSearchConversationID = nil
+        }
+
+        persistSearchConversations()
     }
 
     private func restoreAfterDropExit() {
@@ -2135,6 +3153,7 @@ final class NotchViewModel: ObservableObject {
         isDropTargeted = false
         isPinnedExpanded = true
         intakeFeedbackMessage = nil
+        resetAnswerTransientState()
         surfaceState = .error
         status = .expanded
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -2143,6 +3162,8 @@ final class NotchViewModel: ObservableObject {
     private func presentAnswerError(_ error: Error, question: String) {
         isBusy = false
         isPinnedExpanded = true
+        resetAnswerTransientState()
+        isDismissed = false
         surfaceState = .error
         status = .expanded
         errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -2195,6 +3216,8 @@ final class NotchViewModel: ObservableObject {
             return libraryDetailPreferredPanelHeight
         case .savedPreview:
             return savedPreviewPreferredPanelHeight
+        case .search:
+            return searchPreferredPanelHeight
         case .taskPanel:
             return taskPanelPreferredPanelHeight
         default:
@@ -2210,6 +3233,8 @@ final class NotchViewModel: ObservableObject {
             return libraryDetailMaxPanelHeight
         case .savedPreview:
             return savedPreviewMaxPanelHeight
+        case .search:
+            return searchMaxPanelHeight
         case .taskPanel:
             return taskPanelMaxPanelHeight
         default:

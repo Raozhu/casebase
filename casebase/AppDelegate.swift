@@ -18,6 +18,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             runtime = try CasebaseRuntime.bootstrap()
             startupError = nil
+            if let runtime {
+                Task {
+                    do {
+                        let reorganizedCount = try await runtime.assetOrganizationService.organizeLegacyAssets()
+                        guard reorganizedCount > 0 else { return }
+                        NotificationCenter.default.post(
+                            name: .casebaseRecordsReorganized,
+                            object: nil,
+                            userInfo: ["reorganizedCount": reorganizedCount]
+                        )
+                    } catch {
+                        CasebaseDebugLogger.log(
+                            "legacy asset organization failed error=\(String(describing: error))"
+                        )
+                    }
+                }
+            }
         } catch {
             runtime = nil
             startupError = error

@@ -6,8 +6,40 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		90A0B0000000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000001 /* main.swift */; };
+		90A0B0000000000000000002 /* CasebaseCatalogRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000002 /* CasebaseCatalogRuntime.swift */; };
+		90A0B0000000000000000003 /* CasebaseMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000003 /* CasebaseMCPServer.swift */; };
+		90A0B0000000000000000004 /* AnswerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000011 /* AnswerModels.swift */; };
+		90A0B0000000000000000005 /* IngestModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000012 /* IngestModels.swift */; };
+		90A0B0000000000000000006 /* KnowledgeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000013 /* KnowledgeModels.swift */; };
+		90A0B0000000000000000007 /* CasebaseError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000014 /* CasebaseError.swift */; };
+		90A0B0000000000000000008 /* ServiceProtocols.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000015 /* ServiceProtocols.swift */; };
+		90A0B0000000000000000009 /* LocalKnowledgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000016 /* LocalKnowledgeStore.swift */; };
+		90A0B000000000000000000A /* RecordCatalogModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000017 /* RecordCatalogModels.swift */; };
+		90A0B000000000000000000B /* SQLiteDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000018 /* SQLiteDatabase.swift */; };
+		90A0B000000000000000000C /* CasebaseConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000019 /* CasebaseConfiguration.swift */; };
+		90A0B000000000000000000D /* CasebaseLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B100000000000000001A /* CasebaseLanguage.swift */; };
+		90A0B000000000000000000E /* CasebasePromptCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B100000000000000001B /* CasebasePromptCatalog.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		64EBAE7F2CFECD56000429A4 /* casebase.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = casebase.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		90A0B1000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		90A0B1000000000000000002 /* CasebaseCatalogRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CasebaseCatalogRuntime.swift; sourceTree = "<group>"; };
+		90A0B1000000000000000003 /* CasebaseMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CasebaseMCPServer.swift; sourceTree = "<group>"; };
+		90A0B1000000000000000011 /* AnswerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Core/Models/AnswerModels.swift; sourceTree = SOURCE_ROOT; };
+		90A0B1000000000000000012 /* IngestModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Core/Models/IngestModels.swift; sourceTree = SOURCE_ROOT; };
+		90A0B1000000000000000013 /* KnowledgeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Core/Models/KnowledgeModels.swift; sourceTree = SOURCE_ROOT; };
+		90A0B1000000000000000014 /* CasebaseError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Core/Errors/CasebaseError.swift; sourceTree = SOURCE_ROOT; };
+		90A0B1000000000000000015 /* ServiceProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Core/Protocols/ServiceProtocols.swift; sourceTree = SOURCE_ROOT; };
+		90A0B1000000000000000016 /* LocalKnowledgeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Knowledge/LocalKnowledgeStore.swift; sourceTree = SOURCE_ROOT; };
+		90A0B1000000000000000017 /* RecordCatalogModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Knowledge/Models/RecordCatalogModels.swift; sourceTree = SOURCE_ROOT; };
+		90A0B1000000000000000018 /* SQLiteDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Knowledge/SQLite/SQLiteDatabase.swift; sourceTree = SOURCE_ROOT; };
+		90A0B1000000000000000019 /* CasebaseConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Support/Config/CasebaseConfiguration.swift; sourceTree = SOURCE_ROOT; };
+		90A0B100000000000000001A /* CasebaseLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Support/Localization/CasebaseLanguage.swift; sourceTree = SOURCE_ROOT; };
+		90A0B100000000000000001B /* CasebasePromptCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Support/Prompts/CasebasePromptCatalog.swift; sourceTree = SOURCE_ROOT; };
+		90A0B10000000000000000FF /* casebase-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = casebase-mcp; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -39,6 +71,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		90A0B3000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -46,6 +85,8 @@
 			isa = PBXGroup;
 			children = (
 				64EBAE812CFECD56000429A4 /* casebase */,
+				90A0B2000000000000000001 /* casebase-mcp */,
+				90A0B2000000000000000002 /* casebase-mcp Shared */,
 				64EBAE802CFECD56000429A4 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,8 +95,37 @@
 			isa = PBXGroup;
 			children = (
 				64EBAE7F2CFECD56000429A4 /* casebase.app */,
+				90A0B10000000000000000FF /* casebase-mcp */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		90A0B2000000000000000001 /* casebase-mcp */ = {
+			isa = PBXGroup;
+			children = (
+				90A0B1000000000000000002 /* CasebaseCatalogRuntime.swift */,
+				90A0B1000000000000000003 /* CasebaseMCPServer.swift */,
+				90A0B1000000000000000001 /* main.swift */,
+			);
+			path = casebase-mcp;
+			sourceTree = "<group>";
+		};
+		90A0B2000000000000000002 /* casebase-mcp Shared */ = {
+			isa = PBXGroup;
+			children = (
+				90A0B1000000000000000011 /* AnswerModels.swift */,
+				90A0B1000000000000000012 /* IngestModels.swift */,
+				90A0B1000000000000000013 /* KnowledgeModels.swift */,
+				90A0B1000000000000000014 /* CasebaseError.swift */,
+				90A0B1000000000000000015 /* ServiceProtocols.swift */,
+				90A0B1000000000000000016 /* LocalKnowledgeStore.swift */,
+				90A0B1000000000000000017 /* RecordCatalogModels.swift */,
+				90A0B1000000000000000018 /* SQLiteDatabase.swift */,
+				90A0B1000000000000000019 /* CasebaseConfiguration.swift */,
+				90A0B100000000000000001A /* CasebaseLanguage.swift */,
+				90A0B100000000000000001B /* CasebasePromptCatalog.swift */,
+			);
+			name = "casebase-mcp Shared";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -82,6 +152,24 @@
 			productName = casebase;
 			productReference = 64EBAE7F2CFECD56000429A4 /* casebase.app */;
 			productType = "com.apple.product-type.application";
+		};
+		90A0B4000000000000000001 /* casebase-mcp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 90A0B6000000000000000002 /* Build configuration list for PBXNativeTarget "casebase-mcp" */;
+			buildPhases = (
+				90A0B3000000000000000002 /* Sources */,
+				90A0B3000000000000000001 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "casebase-mcp";
+			packageProductDependencies = (
+			);
+			productName = "casebase-mcp";
+			productReference = 90A0B10000000000000000FF /* casebase-mcp */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -115,6 +203,7 @@
 			projectRoot = "";
 			targets = (
 				64EBAE7E2CFECD56000429A4 /* casebase */,
+				90A0B4000000000000000001 /* casebase-mcp */,
 			);
 		};
 /* End PBXProject section */
@@ -134,6 +223,27 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		90A0B3000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				90A0B0000000000000000001 /* main.swift in Sources */,
+				90A0B0000000000000000002 /* CasebaseCatalogRuntime.swift in Sources */,
+				90A0B0000000000000000003 /* CasebaseMCPServer.swift in Sources */,
+				90A0B0000000000000000004 /* AnswerModels.swift in Sources */,
+				90A0B0000000000000000005 /* IngestModels.swift in Sources */,
+				90A0B0000000000000000006 /* KnowledgeModels.swift in Sources */,
+				90A0B0000000000000000007 /* CasebaseError.swift in Sources */,
+				90A0B0000000000000000008 /* ServiceProtocols.swift in Sources */,
+				90A0B0000000000000000009 /* LocalKnowledgeStore.swift in Sources */,
+				90A0B000000000000000000A /* RecordCatalogModels.swift in Sources */,
+				90A0B000000000000000000B /* SQLiteDatabase.swift in Sources */,
+				90A0B000000000000000000C /* CasebaseConfiguration.swift in Sources */,
+				90A0B000000000000000000D /* CasebaseLanguage.swift in Sources */,
+				90A0B000000000000000000E /* CasebasePromptCatalog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -316,6 +426,31 @@
 			};
 			name = Release;
 		};
+		90A0B5000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 0;
+				DEVELOPMENT_TEAM = 8TDYAWS6VC;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		90A0B5000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 0;
+				DEVELOPMENT_TEAM = 8TDYAWS6VC;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -333,6 +468,15 @@
 			buildConfigurations = (
 				64EBAE8F2CFECD57000429A4 /* Debug */,
 				64EBAE902CFECD57000429A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		90A0B6000000000000000002 /* Build configuration list for PBXNativeTarget "casebase-mcp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				90A0B5000000000000000001 /* Debug */,
+				90A0B5000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

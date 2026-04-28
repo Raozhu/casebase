@@ -27,32 +27,48 @@ enum SystemCommandRunner {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+        var standardOutput = Data()
+        var standardError = Data()
+        let ioGroup = DispatchGroup()
+
+        ioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            standardOutput = stdoutHandle.readDataToEndOfFile()
+            ioGroup.leave()
+        }
+
+        ioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            standardError = stderrHandle.readDataToEndOfFile()
+            ioGroup.leave()
+        }
+
         if let input {
             let stdinPipe = Pipe()
             process.standardInput = stdinPipe
             try process.run()
-            stdinPipe.fileHandleForWriting.writeabilityHandler = { handle in
-                handle.write(input)
-                try? handle.close()
-                handle.writeabilityHandler = nil
+            let stdinHandle = stdinPipe.fileHandleForWriting
+            DispatchQueue.global(qos: .userInitiated).async {
+                stdinHandle.write(input)
+                try? stdinHandle.close()
             }
         } else {
             try process.run()
         }
 
         process.waitUntilExit()
-
-        let stdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        ioGroup.wait()
         let result = Result(
-            standardOutput: stdout,
-            standardError: stderr,
+            standardOutput: standardOutput,
+            standardError: standardError,
             terminationStatus: process.terminationStatus
         )
 
         guard process.terminationStatus == 0 else {
-            let stderrText = String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            let stdoutText = String(decoding: stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            let stderrText = String(decoding: standardError, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            let stdoutText = String(decoding: standardOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             let message = [stderrText, stdoutText]
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
