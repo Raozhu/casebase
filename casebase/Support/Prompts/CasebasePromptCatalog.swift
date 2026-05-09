@@ -105,6 +105,13 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var hoverActionMeetingTooltip: String {
+            switch language {
+            case .simplifiedChinese: return "会议"
+            case .english: return "Meeting"
+            }
+        }
+
         var libraryTitle: String {
             switch language {
             case .simplifiedChinese: return "已存数据"
@@ -165,6 +172,13 @@ enum CasebasePromptCatalog {
             switch language {
             case .simplifiedChinese: return "具体信息"
             case .english: return "Structured data"
+            }
+        }
+
+        var libraryTranscriptSectionTitle: String {
+            switch language {
+            case .simplifiedChinese: return "转写文本"
+            case .english: return "Transcript"
             }
         }
 
@@ -488,6 +502,222 @@ enum CasebasePromptCatalog {
             switch language {
             case .simplifiedChinese: return "退出 casebase"
             case .english: return "Quit casebase"
+            }
+        }
+
+        var meetingTitle: String {
+            switch language {
+            case .simplifiedChinese: return "会议"
+            case .english: return "Meeting"
+            }
+        }
+
+        var meetingDraftTitle: String {
+            switch language {
+            case .simplifiedChinese: return "开始一场会议录音"
+            case .english: return "Start a meeting recording"
+            }
+        }
+
+        var meetingRecordingTitle: String {
+            switch language {
+            case .simplifiedChinese: return "会议录音中"
+            case .english: return "Recording meeting"
+            }
+        }
+
+        var meetingPausedTitle: String {
+            switch language {
+            case .simplifiedChinese: return "会议已暂停"
+            case .english: return "Meeting paused"
+            }
+        }
+
+        var meetingParticipantLabel: String {
+            switch language {
+            case .simplifiedChinese: return "人数"
+            case .english: return "People"
+            }
+        }
+
+        var meetingTopicLabel: String {
+            switch language {
+            case .simplifiedChinese: return "主题"
+            case .english: return "Topic"
+            }
+        }
+
+        var meetingTopicPlaceholder: String {
+            switch language {
+            case .simplifiedChinese: return "可不填，比如：评审、同步、复盘"
+            case .english: return "Optional, for example: review, sync, retrospective"
+            }
+        }
+
+        var meetingStartButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "开始"
+            case .english: return "Start"
+            }
+        }
+
+        var meetingCancelButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "取消"
+            case .english: return "Cancel"
+            }
+        }
+
+        var meetingPauseButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "暂停"
+            case .english: return "Pause"
+            }
+        }
+
+        var meetingResumeButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "继续"
+            case .english: return "Resume"
+            }
+        }
+
+        var meetingFinishButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "完成"
+            case .english: return "Finish"
+            }
+        }
+
+        var meetingDurationLabel: String {
+            switch language {
+            case .simplifiedChinese: return "总时长"
+            case .english: return "Elapsed"
+            }
+        }
+
+        func meetingParticipantValue(_ count: Int) -> String {
+            switch language {
+            case .simplifiedChinese:
+                return "\(count) 人"
+            case .english:
+                return "\(count) people"
+            }
+        }
+
+        var meetingTopicEmptyValue: String {
+            switch language {
+            case .simplifiedChinese: return "未填写主题"
+            case .english: return "No topic"
+            }
+        }
+
+        var meetingPermissionDeniedMessage: String {
+            switch language {
+            case .simplifiedChinese: return "需要麦克风权限后才能开始会议录音。"
+            case .english: return "Microphone access is required before starting a meeting recording."
+            }
+        }
+
+        var meetingPermissionButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "去授权麦克风"
+            case .english: return "Authorize microphone"
+            }
+        }
+
+        var meetingSessionAlreadyRunningMessage: String {
+            switch language {
+            case .simplifiedChinese: return "已经有一场会议在录音中。"
+            case .english: return "A meeting recording is already in progress."
+            }
+        }
+
+        var meetingSessionMissingMessage: String {
+            switch language {
+            case .simplifiedChinese: return "当前没有进行中的会议录音。"
+            case .english: return "There is no active meeting recording."
+            }
+        }
+
+        var meetingAlreadyPausedMessage: String {
+            switch language {
+            case .simplifiedChinese: return "会议录音已经暂停。"
+            case .english: return "The meeting recording is already paused."
+            }
+        }
+
+        var meetingAlreadyRecordingMessage: String {
+            switch language {
+            case .simplifiedChinese: return "会议录音已经在继续。"
+            case .english: return "The meeting recording is already running."
+            }
+        }
+
+        var meetingRecordingStartFailedMessage: String {
+            switch language {
+            case .simplifiedChinese: return "录音没有成功开始，请再试一次。"
+            case .english: return "Recording did not start successfully. Please try again."
+            }
+        }
+
+        var meetingRecorderCreationFailedMessage: String {
+            switch language {
+            case .simplifiedChinese: return "初始化录音器失败，请检查麦克风与系统设置。"
+            case .english: return "Failed to initialize the recorder. Check your microphone and system settings."
+            }
+        }
+
+        var meetingRecordingInterruptedMessage: String {
+            switch language {
+            case .simplifiedChinese: return "会议录音意外中断，当前录音已停止。"
+            case .english: return "The meeting recording was interrupted and has stopped."
+            }
+        }
+
+        var meetingDiscardConfirmationTitle: String {
+            switch language {
+            case .simplifiedChinese: return "放弃这次会议录音？"
+            case .english: return "Discard this meeting recording?"
+            }
+        }
+
+        func meetingDiscardConfirmationDetail(durationText: String) -> String {
+            switch language {
+            case .simplifiedChinese:
+                return "这段 \(durationText) 的录音会被直接丢弃，不会入库，也不会保留本地文件。"
+            case .english:
+                return "This \(durationText) recording will be discarded. It will not be saved or kept locally."
+            }
+        }
+
+        var meetingDiscardConfirmationConfirmTitle: String {
+            switch language {
+            case .simplifiedChinese: return "确认放弃"
+            case .english: return "Discard"
+            }
+        }
+
+        var meetingFinishConfirmationTitle: String {
+            switch language {
+            case .simplifiedChinese: return "结束并入库这次会议？"
+            case .english: return "Finish and save this meeting?"
+            }
+        }
+
+        func meetingFinishConfirmationDetail(durationText: String) -> String {
+            switch language {
+            case .simplifiedChinese:
+                return "这段 \(durationText) 的录音会先通过本地 oMLX 模型转写，再和音频一起入库；整段音频不会发送到远程分析模型。"
+            case .english:
+                return "This \(durationText) recording will be transcribed with the local oMLX model, then saved together with the audio. The full recording is not sent to a remote analysis model."
+            }
+        }
+
+        var meetingFinishConfirmationConfirmTitle: String {
+            switch language {
+            case .simplifiedChinese: return "确认完成"
+            case .english: return "Finish"
             }
         }
 
@@ -2012,6 +2242,13 @@ enum CasebasePromptCatalog {
             switch language {
             case .simplifiedChinese: return "生成检索向量"
             case .english: return "generating the embedding"
+            }
+        }
+
+        var importStageTranscribingMeetingLocally: String {
+            switch language {
+            case .simplifiedChinese: return "本地转写会议录音"
+            case .english: return "transcribing the meeting locally"
             }
         }
 

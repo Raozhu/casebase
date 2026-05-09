@@ -38,6 +38,7 @@ final class NotchWindowController: NSWindowController {
             libraryService: runtime?.libraryService,
             storageRootDirectory: runtime?.configuration.storage.rootDirectory,
             dataResetService: runtime?.dataResetService,
+            meetingRecorder: runtime?.meetingRecorder,
             demoModeEnabled: false,
             startupErrorMessage: startupError.map { ($0 as? LocalizedError)?.errorDescription ?? $0.localizedDescription }
         )

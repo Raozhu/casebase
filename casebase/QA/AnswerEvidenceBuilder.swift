@@ -31,6 +31,15 @@ struct AnswerEvidenceBuilder {
     ) async -> AnswerEvidencePacket? {
         let record = hit.record
         let assetURL = await assetVault.url(for: record.assetPath)
+
+        if MeetingRecordMetadata.isMeetingRecord(record) {
+            return buildMeetingEvidencePacket(
+                questionCandidates: questionCandidates,
+                hit: hit,
+                assetURL: assetURL
+            )
+        }
+
         let payload = ImportPayload.file(
             FileImportPayload(
                 fileURL: assetURL,
@@ -70,6 +79,45 @@ struct AnswerEvidenceBuilder {
             evidenceExcerpt: evidenceExcerpt,
             attachments: normalized.attachments,
             previewAssetPath: previewAssetPath,
+            openTarget: assetURL.path,
+            matchedSnippets: hit.matchedSnippets
+        )
+    }
+
+    private func buildMeetingEvidencePacket(
+        questionCandidates: [String],
+        hit: SearchHit,
+        assetURL: URL
+    ) -> AnswerEvidencePacket {
+        let record = hit.record
+        let transcriptText = record.userSupplement?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let matchCandidates = questionCandidates + hit.matchedSnippets + record.usefulSnippets
+        let evidenceExcerpt = resolveEvidenceExcerpt(
+            rawText: transcriptText,
+            matchCandidates: matchCandidates,
+            fallbackSnippets: hit.matchedSnippets + record.usefulSnippets,
+            shortSummary: record.shortSummary
+        )
+        let attachments = [
+            NormalizedAttachment(
+                kind: .audioSource,
+                path: assetURL.path,
+                mimeType: record.mimeType
+            )
+        ]
+
+        return AnswerEvidencePacket(
+            id: record.id,
+            record: record,
+            rawText: transcriptText,
+            modelTextContext: resolveModelTextContext(
+                rawText: transcriptText,
+                matchCandidates: matchCandidates
+            ),
+            evidenceExcerpt: evidenceExcerpt,
+            attachments: attachments,
+            previewAssetPath: nil,
             openTarget: assetURL.path,
             matchedSnippets: hit.matchedSnippets
         )

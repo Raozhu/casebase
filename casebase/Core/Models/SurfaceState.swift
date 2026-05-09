@@ -4,6 +4,9 @@ import Foundation
 enum CasebaseSurfaceState: String, Codable, Hashable {
     case idle
     case hoverActions
+    case meeting
+    case meetingDiscardConfirmation
+    case meetingFinishConfirmation
     case library
     case libraryDetail
     case settings
@@ -24,7 +27,7 @@ extension CasebaseSurfaceState {
         switch self {
         case .idle, .hoverActions:
             return false
-        case .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .search, .answering, .answerReady, .error:
+        case .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .search, .answering, .answerReady, .error:
             return true
         }
     }
@@ -33,7 +36,7 @@ extension CasebaseSurfaceState {
         switch self {
         case .idle:
             return false
-        case .hoverActions, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .search, .answering, .answerReady, .error:
+        case .hoverActions, .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .search, .answering, .answerReady, .error:
             return true
         }
     }

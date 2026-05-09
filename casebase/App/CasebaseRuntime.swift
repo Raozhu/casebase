@@ -10,7 +10,9 @@ struct CasebaseRuntime {
     let assetOrganizationService: AssetOrganizationService
     let answerService: AnswerService
     let dataResetService: DataResetService
+    let meetingRecorder: CasebaseMeetingRecorder
 
+    @MainActor
     static func bootstrap() throws -> CasebaseRuntime {
         let configuration = try CasebaseConfiguration.load()
         let aiClient = GeminiAIClient(configuration: configuration)
@@ -26,7 +28,8 @@ struct CasebaseRuntime {
             knowledgeStore: knowledgeStore,
             aiClient: aiClient,
             assetVault: assetVault,
-            maximumImportFileBytes: configuration.ai.maxImportFileBytes
+            maximumImportFileBytes: configuration.ai.maxImportFileBytes,
+            meetingTranscriber: try? OMLXAudioTranscriber()
         )
         let answerService = KnowledgeBackedAnswerService(
             knowledgeStore: knowledgeStore,
@@ -39,6 +42,7 @@ struct CasebaseRuntime {
             knowledgeStore: knowledgeStore,
             assetVault: assetVault
         )
+        let meetingRecorder = CasebaseMeetingRecorder()
 
         return CasebaseRuntime(
             configuration: configuration,
@@ -47,7 +51,8 @@ struct CasebaseRuntime {
             importCoordinator: importCoordinator,
             assetOrganizationService: importCoordinator,
             answerService: answerService,
-            dataResetService: dataResetService
+            dataResetService: dataResetService,
+            meetingRecorder: meetingRecorder
         )
     }
 }

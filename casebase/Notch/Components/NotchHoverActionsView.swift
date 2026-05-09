@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct NotchHoverActionsView: View {
+    let onOpenMeeting: () -> Void
     let onOpenLibrary: () -> Void
     let onOpenSettings: () -> Void
     let onOpenSearch: () -> Void
@@ -34,6 +35,12 @@ struct NotchHoverActionsView: View {
             }
 
             HStack(spacing: 14) {
+                HoverActionButton(
+                    icon: .audio,
+                    helpText: CasebasePromptCatalog.ui.hoverActionMeetingTooltip,
+                    action: onOpenMeeting
+                )
+
                 HoverActionButton(
                     icon: .gear,
                     helpText: CasebasePromptCatalog.ui.hoverActionSettingsTooltip,
@@ -118,6 +125,8 @@ private struct HoverActionButton: View {
 
     private var label: String {
         switch icon {
+        case .audio:
+            return CasebasePromptCatalog.language == .simplifiedChinese ? "会议" : "Meeting"
         case .gear:
             return CasebasePromptCatalog.language == .simplifiedChinese ? "设置" : "Settings"
         case .library:

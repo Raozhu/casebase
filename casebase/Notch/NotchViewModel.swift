@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Combine
 import CoreGraphics
 import Foundation
 import SwiftUI
@@ -28,6 +29,8 @@ final class NotchViewModel: ObservableObject {
     enum CollapsedIndicator {
         case warning
         case error
+        case recording
+        case paused
         case preparing
         case recognizing
         case storing
@@ -51,6 +54,8 @@ final class NotchViewModel: ObservableObject {
     let hoverExpandedPanelSize = CGSize(width: 420, height: 150)
     let hoverExpandedPanelUnauthorizedMinHeight: CGFloat = 176
     let maxAdaptiveExpandedPanelHeight: CGFloat = 640
+    let meetingPreferredPanelHeight: CGFloat = 312
+    let meetingMaxPanelHeight: CGFloat = 408
     let libraryPreferredPanelHeight: CGFloat = 384
     let libraryMaxPanelHeight: CGFloat = 456
     let libraryDetailPreferredPanelHeight: CGFloat = 468
@@ -67,6 +72,7 @@ final class NotchViewModel: ObservableObject {
     let intakeFeedbackDurationNs: UInt64 = 520_000_000
     let maxClarificationRounds = 3
     let importOperationTimeoutSeconds: TimeInterval = 90
+    let meetingImportOperationTimeoutSeconds: TimeInterval = 600
 
     @Published private(set) var surfaceState: CasebaseSurfaceState = .idle
     @Published private(set) var isDropTargeted = false
@@ -119,6 +125,12 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var suppressHoverUntilMouseExit = false
     @Published private(set) var recognizingPlaceholderText = ""
     @Published private(set) var answerThinkingPlaceholderText = ""
+    @Published var meetingParticipantCount = 2
+    @Published var meetingTopic = ""
+    @Published private(set) var activeMeetingSession: MeetingRecordingSession?
+    @Published private(set) var meetingRecorderPermissionStatus: MeetingRecorderPermissionStatus = .undetermined
+    @Published private(set) var isMeetingRecorderBusy = false
+    @Published private(set) var meetingErrorMessage: String?
 
     @Published private(set) var status: Status = .collapsed
     @Published var displayCutoutRect: CGRect
@@ -128,6 +140,7 @@ final class NotchViewModel: ObservableObject {
     private let answerService: AnswerService?
     private let libraryService: LibraryService?
     private let dataResetService: DataResetService?
+    private let meetingRecorder: CasebaseMeetingRecorder?
     private let storageRootDirectory: URL?
     private let demoModeEnabled: Bool
     private let startupErrorMessage: String?
@@ -143,6 +156,9 @@ final class NotchViewModel: ObservableObject {
     private var restoredSurfaceStateBeforeSearch: CasebaseSurfaceState = .hoverActions
     private var restoredStatusBeforeSearch: Status = .expanded
     private var restoredPinnedStateBeforeSearch = false
+    private var restoredSurfaceStateBeforeMeeting: CasebaseSurfaceState = .hoverActions
+    private var restoredStatusBeforeMeeting: Status = .expanded
+    private var restoredPinnedStateBeforeMeeting = false
     private var restoredSurfaceStateBeforeTaskPanel: CasebaseSurfaceState = .idle
     private var restoredStatusBeforeTaskPanel: Status = .collapsed
     private var restoredPinnedStateBeforeTaskPanel = false
@@ -157,6 +173,7 @@ final class NotchViewModel: ObservableObject {
     private var finalSuccessVisible = false
     private var transientResultRailVisible = false
     private var measuredExpandedContentHeights: [CasebaseSurfaceState: CGFloat] = [:]
+    private var meetingRecorderCancellables: Set<AnyCancellable> = []
     private let searchConversationStoreFileName = "explore_conversations.json"
     private static let chineseLibraryTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -181,6 +198,7 @@ final class NotchViewModel: ObservableObject {
         libraryService: LibraryService? = nil,
         storageRootDirectory: URL? = nil,
         dataResetService: DataResetService? = nil,
+        meetingRecorder: CasebaseMeetingRecorder? = nil,
         demoModeEnabled: Bool = true,
         startupErrorMessage: String? = nil
     ) {
@@ -191,6 +209,7 @@ final class NotchViewModel: ObservableObject {
         self.libraryService = libraryService
         self.storageRootDirectory = storageRootDirectory
         self.dataResetService = dataResetService
+        self.meetingRecorder = meetingRecorder
 
         if let importCoordinator {
             self.importCoordinator = importCoordinator
@@ -209,6 +228,7 @@ final class NotchViewModel: ObservableObject {
         }
 
         refreshShortcutPermissions()
+        bindMeetingRecorder()
         loadSearchConversations()
     }
 
@@ -253,6 +273,12 @@ final class NotchViewModel: ObservableObject {
                         : hoverExpandedPanelUnauthorizedMinHeight
                 )
             )
+        case .meeting:
+            return CGSize(width: 520, height: adaptiveExpandedHeight(for: .meeting, minimum: 248))
+        case .meetingDiscardConfirmation:
+            return CGSize(width: 520, height: adaptiveExpandedHeight(for: .meetingDiscardConfirmation, minimum: 248))
+        case .meetingFinishConfirmation:
+            return CGSize(width: 520, height: adaptiveExpandedHeight(for: .meetingFinishConfirmation, minimum: 248))
         case .library:
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: .library, minimum: 220))
         case .libraryDetail:
@@ -447,6 +473,61 @@ final class NotchViewModel: ObservableObject {
         unfinishedTaskCount == 0 && !isBusy && !isClearingStoredData
     }
 
+    var meetingPanelTitle: String {
+        if activeMeetingSession?.isPaused == true {
+            return CasebasePromptCatalog.ui.meetingPausedTitle
+        }
+        if activeMeetingSession != nil {
+            return CasebasePromptCatalog.ui.meetingRecordingTitle
+        }
+        return CasebasePromptCatalog.ui.meetingDraftTitle
+    }
+
+    var meetingElapsedDurationText: String {
+        formatDuration(activeMeetingSession?.elapsedDuration ?? 0)
+    }
+
+    var meetingParticipantValueText: String {
+        CasebasePromptCatalog.ui.meetingParticipantValue(activeMeetingSession?.participantCount ?? meetingParticipantCount)
+    }
+
+    var meetingTopicValueText: String {
+        let topic = (activeMeetingSession?.topic ?? meetingTopic).trimmingCharacters(in: .whitespacesAndNewlines)
+        return topic.isEmpty ? CasebasePromptCatalog.ui.meetingTopicEmptyValue : topic
+    }
+
+    var hasActiveMeetingSession: Bool {
+        activeMeetingSession != nil
+    }
+
+    var isMeetingPaused: Bool {
+        activeMeetingSession?.isPaused == true
+    }
+
+    var meetingDiscardConfirmationTitle: String {
+        CasebasePromptCatalog.ui.meetingDiscardConfirmationTitle
+    }
+
+    var meetingDiscardConfirmationDetail: String {
+        CasebasePromptCatalog.ui.meetingDiscardConfirmationDetail(durationText: meetingElapsedDurationText)
+    }
+
+    var meetingDiscardConfirmationConfirmTitle: String {
+        CasebasePromptCatalog.ui.meetingDiscardConfirmationConfirmTitle
+    }
+
+    var meetingFinishConfirmationTitle: String {
+        CasebasePromptCatalog.ui.meetingFinishConfirmationTitle
+    }
+
+    var meetingFinishConfirmationDetail: String {
+        CasebasePromptCatalog.ui.meetingFinishConfirmationDetail(durationText: meetingElapsedDurationText)
+    }
+
+    var meetingFinishConfirmationConfirmTitle: String {
+        CasebasePromptCatalog.ui.meetingFinishConfirmationConfirmTitle
+    }
+
     var hasMissingShortcutPermissions: Bool {
         !selectionCaptureAuthorized || !screenshotCaptureAuthorized
     }
@@ -475,6 +556,9 @@ final class NotchViewModel: ObservableObject {
     var collapsedIndicator: CollapsedIndicator? {
         if !failedTasks.isEmpty || (surfaceState == .error && errorMessage != nil) {
             return .error
+        }
+        if let meetingIndicator = currentMeetingCollapsedIndicator {
+            return meetingIndicator
         }
         if isAnswerRailActive {
             return .recognizing
@@ -593,6 +677,10 @@ final class NotchViewModel: ObservableObject {
             return failedTasks.count >= 10 ? "9+" : "\(failedTasks.count)"
         }
 
+        if activeMeetingSession != nil {
+            return nil
+        }
+
         if isAnswerRailActive {
             return nil
         }
@@ -708,6 +796,11 @@ final class NotchViewModel: ObservableObject {
         }
 
         return nil
+    }
+
+    private var currentMeetingCollapsedIndicator: CollapsedIndicator? {
+        guard activeMeetingSession != nil else { return nil }
+        return activeMeetingSession?.isPaused == true ? .paused : .recording
     }
 
     private func condensedThinkingText(for task: NotchIngestTask) -> String? {
@@ -1057,6 +1150,57 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    func openMicrophoneSettings() {
+        let urls = [
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone"
+        ]
+
+        for urlString in urls {
+            guard let url = URL(string: urlString) else { continue }
+            if NSWorkspace.shared.open(url) {
+                return
+            }
+        }
+    }
+
+    private func bindMeetingRecorder() {
+        guard let meetingRecorder else { return }
+
+        meetingRecorder.$activeSession
+            .receive(on: RunLoop.main)
+            .sink { [weak self] session in
+                guard let self else { return }
+                self.activeMeetingSession = session
+                if let session {
+                    self.setMeetingDraft(from: session)
+                }
+            }
+            .store(in: &meetingRecorderCancellables)
+
+        meetingRecorder.$permissionStatus
+            .receive(on: RunLoop.main)
+            .sink { [weak self] permissionStatus in
+                self?.meetingRecorderPermissionStatus = permissionStatus
+            }
+            .store(in: &meetingRecorderCancellables)
+
+        meetingRecorder.$isBusy
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isBusy in
+                self?.isMeetingRecorderBusy = isBusy
+            }
+            .store(in: &meetingRecorderCancellables)
+
+        meetingRecorder.$lastErrorMessage
+            .receive(on: RunLoop.main)
+            .sink { [weak self] message in
+                guard let self, let message, !message.isEmpty else { return }
+                self.meetingErrorMessage = message
+            }
+            .store(in: &meetingRecorderCancellables)
+    }
+
     func submitQuestion() {
         let question = draftQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty else { return }
@@ -1260,6 +1404,172 @@ final class NotchViewModel: ObservableObject {
         if surfaceState == .hoverActions {
             status = .expanded
             isPinnedExpanded = true
+        }
+    }
+
+    func openMeeting() {
+        guard meetingRecorder != nil else {
+            meetingErrorMessage = CasebasePromptCatalog.ui.meetingRecorderCreationFailedMessage
+            return
+        }
+
+        if surfaceState != .meeting,
+           surfaceState != .meetingDiscardConfirmation,
+           surfaceState != .meetingFinishConfirmation
+        {
+            restoredSurfaceStateBeforeMeeting = surfaceState
+            restoredStatusBeforeMeeting = status
+            restoredPinnedStateBeforeMeeting = isPinnedExpanded
+        }
+
+        meetingErrorMessage = nil
+        isDismissed = false
+        isPinnedExpanded = true
+        surfaceState = .meeting
+        status = .expanded
+    }
+
+    func closeMeeting() {
+        guard surfaceState == .meeting
+            || surfaceState == .meetingDiscardConfirmation
+            || surfaceState == .meetingFinishConfirmation
+        else { return }
+
+        meetingErrorMessage = nil
+        isDismissed = false
+        isPinnedExpanded = restoredPinnedStateBeforeMeeting
+        surfaceState = restoredSurfaceStateBeforeMeeting
+        status = restoredStatusBeforeMeeting
+
+        if surfaceState == .hoverActions {
+            status = .expanded
+            isPinnedExpanded = true
+        }
+    }
+
+    func startMeetingRecording() {
+        guard let meetingRecorder else {
+            meetingErrorMessage = CasebasePromptCatalog.ui.meetingRecorderCreationFailedMessage
+            return
+        }
+
+        meetingErrorMessage = nil
+        let participantCount = max(1, meetingParticipantCount)
+        let topic = meetingTopic
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                try await meetingRecorder.start(participantCount: participantCount, topic: topic)
+                self.collapseMeetingAfterStart()
+            } catch {
+                self.meetingErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                self.surfaceState = .meeting
+                self.status = .expanded
+                self.isPinnedExpanded = true
+                self.isDismissed = false
+            }
+        }
+    }
+
+    func toggleMeetingPauseResume() {
+        guard let meetingRecorder else { return }
+
+        meetingErrorMessage = nil
+        do {
+            if activeMeetingSession?.isPaused == true {
+                try meetingRecorder.resume()
+            } else {
+                try meetingRecorder.pause()
+            }
+            surfaceState = .meeting
+            status = .expanded
+            isPinnedExpanded = true
+            isDismissed = false
+        } catch {
+            meetingErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    func requestMeetingDiscard() {
+        guard hasActiveMeetingSession else { return }
+        meetingErrorMessage = nil
+        isDismissed = false
+        isPinnedExpanded = true
+        surfaceState = .meetingDiscardConfirmation
+        status = .expanded
+    }
+
+    func dismissMeetingDiscardConfirmation() {
+        guard surfaceState == .meetingDiscardConfirmation else { return }
+        surfaceState = .meeting
+        status = .expanded
+        isPinnedExpanded = true
+        isDismissed = false
+    }
+
+    func confirmMeetingDiscard() {
+        guard let meetingRecorder else { return }
+
+        do {
+            try meetingRecorder.discard()
+            meetingErrorMessage = nil
+            surfaceState = .meeting
+            status = .expanded
+            isPinnedExpanded = true
+            isDismissed = false
+        } catch {
+            meetingErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            surfaceState = .meeting
+            status = .expanded
+            isPinnedExpanded = true
+            isDismissed = false
+        }
+    }
+
+    func requestMeetingFinish() {
+        guard hasActiveMeetingSession else { return }
+        meetingErrorMessage = nil
+        isDismissed = false
+        isPinnedExpanded = true
+        surfaceState = .meetingFinishConfirmation
+        status = .expanded
+    }
+
+    func dismissMeetingFinishConfirmation() {
+        guard surfaceState == .meetingFinishConfirmation else { return }
+        surfaceState = .meeting
+        status = .expanded
+        isPinnedExpanded = true
+        isDismissed = false
+    }
+
+    func confirmMeetingFinish() {
+        guard let meetingRecorder else { return }
+
+        do {
+            let recording = try meetingRecorder.finish()
+            setMeetingDraft(from: recording)
+            meetingErrorMessage = nil
+            dismissMeetingSurfaceAfterCompletion()
+
+            let payload = meetingImportPayload(for: recording)
+            let joiningExistingQueue = unfinishedTaskCount > 0 || finalSuccessVisible
+            pulseFeedback()
+            presentIntakeFeedback(message: joiningExistingQueue
+                ? CasebasePromptCatalog.ui.intakeQueuedFeedback
+                : CasebasePromptCatalog.ui.intakeDigestingFeedback)
+
+            Task { [weak self] in
+                await self?.enqueue([payload], prefersAutomaticExpansion: false)
+            }
+        } catch {
+            meetingErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            surfaceState = .meeting
+            status = .expanded
+            isPinnedExpanded = true
+            isDismissed = false
         }
     }
 
@@ -2203,7 +2513,7 @@ final class NotchViewModel: ObservableObject {
             CasebaseDebugLogger.log("import dequeued \(importTaskLogContext(task))")
 
             do {
-                let timeoutSeconds = importOperationTimeoutSeconds
+                let timeoutSeconds = timeoutSeconds(for: task.payload)
                 let record = try await withTaskTimeout(
                     seconds: timeoutSeconds,
                     timeoutError: CasebaseError.operationTimedOut(
@@ -2397,8 +2707,12 @@ final class NotchViewModel: ObservableObject {
         if let casebaseError = error as? CasebaseError,
            case .operationTimedOut = casebaseError
         {
+            let timeoutSecondsValue = ingestTasks
+                .first(where: { $0.id == taskID })
+                .map { timeoutSeconds(for: $0.payload) }
+                ?? importOperationTimeoutSeconds
             let timeoutMessage = CasebasePromptCatalog.errors.importTaskTimedOut(
-                seconds: Int(importOperationTimeoutSeconds),
+                seconds: Int(timeoutSecondsValue),
                 stageDescription: currentImportStageDescription(for: taskID)
             )
             let timeoutError = CasebaseError.operationTimedOut(timeoutMessage)
@@ -2430,6 +2744,12 @@ final class NotchViewModel: ObservableObject {
         case .succeeded, .failed:
             return nil
         }
+    }
+
+    private func timeoutSeconds(for payload: ImportPayload) -> TimeInterval {
+        MeetingRecordMetadata.isMeetingPayload(payload)
+            ? meetingImportOperationTimeoutSeconds
+            : importOperationTimeoutSeconds
     }
 
     private func importTaskLogContext(_ task: NotchIngestTask) -> String {
@@ -2560,6 +2880,76 @@ final class NotchViewModel: ObservableObject {
                   let refreshedRecord = libraryRecords.first(where: { $0.id == selected.id }) {
             selectedLibraryRecord = refreshedRecord
         }
+    }
+
+    private func setMeetingDraft(from session: MeetingRecordingSession) {
+        meetingParticipantCount = session.participantCount
+        meetingTopic = session.topic
+    }
+
+    private func setMeetingDraft(from recording: CompletedMeetingRecording) {
+        meetingParticipantCount = recording.participantCount
+        meetingTopic = recording.topic
+    }
+
+    private func collapseMeetingAfterStart() {
+        isDropTargeted = false
+        isPinnedExpanded = false
+        intakeFeedbackTask?.cancel()
+        intakeFeedbackMessage = nil
+        isDismissed = true
+        status = .collapsed
+    }
+
+    private func dismissMeetingSurfaceAfterCompletion() {
+        isDropTargeted = false
+        isPinnedExpanded = false
+        isDismissed = false
+        surfaceState = .idle
+        status = .collapsed
+    }
+
+    private func meetingImportPayload(for recording: CompletedMeetingRecording) -> ImportPayload {
+        var metadata: [String: String] = [
+            MeetingRecordMetadata.participantCountKey: "\(recording.participantCount)",
+            MeetingRecordMetadata.durationSecondsKey: String(format: "%.3f", recording.duration),
+            MeetingRecordMetadata.startedAtKey: Self.meetingMetadataDateFormatter.string(from: recording.startedAt),
+            MeetingRecordMetadata.sourceKey: MeetingRecordMetadata.sourceValue,
+        ]
+        if !recording.topic.isEmpty {
+            metadata[MeetingRecordMetadata.topicKey] = recording.topic
+        }
+
+        return .file(
+            FileImportPayload(
+                fileURL: recording.fileURL,
+                suggestedFileName: meetingSuggestedFileName(for: recording),
+                mimeType: "audio/wav",
+                sourceKindHint: .audio,
+                contextMetadata: metadata
+            )
+        )
+    }
+
+    private func meetingSuggestedFileName(for recording: CompletedMeetingRecording) -> String {
+        let timestamp = Self.meetingFileNameDateFormatter.string(from: recording.startedAt)
+        let trimmedTopic = recording.topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedTopic.isEmpty {
+            return "会议录音 \(timestamp).wav"
+        }
+        return "会议录音 \(trimmedTopic) \(timestamp).wav"
+    }
+
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let totalSeconds = max(0, Int(duration.rounded(.down)))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 
     private func reloadLibraryRecords(using service: LibraryService) async {
@@ -3210,6 +3600,8 @@ final class NotchViewModel: ObservableObject {
             return selectionCaptureAuthorized
                 ? hoverExpandedPanelSize.height
                 : hoverExpandedPanelUnauthorizedMinHeight
+        case .meeting:
+            return meetingPreferredPanelHeight
         case .library:
             return libraryPreferredPanelHeight
         case .libraryDetail:
@@ -3227,6 +3619,8 @@ final class NotchViewModel: ObservableObject {
 
     private func maximumAdaptiveExpandedHeight(for state: CasebaseSurfaceState) -> CGFloat {
         switch state {
+        case .meeting:
+            return meetingMaxPanelHeight
         case .library:
             return libraryMaxPanelHeight
         case .libraryDetail:
@@ -3241,4 +3635,17 @@ final class NotchViewModel: ObservableObject {
             return maxAdaptiveExpandedPanelHeight
         }
     }
+
+    private static let meetingMetadataDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let meetingFileNameDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+        return formatter
+    }()
 }

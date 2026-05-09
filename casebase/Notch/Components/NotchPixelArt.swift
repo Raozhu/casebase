@@ -57,6 +57,9 @@ enum NotchPixelIcon {
     case gear
     case library
     case search
+    case people
+    case play
+    case pause
     case chevronLeft
     case chevronRight
     case arrowRight
@@ -165,6 +168,36 @@ enum NotchPixelIcon {
                 "001000110",
                 "000111101",
                 "000000011",
+            ]
+        case .people:
+            return [
+                "0110110",
+                "0110110",
+                "0011100",
+                "0111110",
+                "1111111",
+                "1100011",
+                "0000000",
+            ]
+        case .play:
+            return [
+                "1000000",
+                "1100000",
+                "1110000",
+                "1111000",
+                "1110000",
+                "1100000",
+                "1000000",
+            ]
+        case .pause:
+            return [
+                "1100011",
+                "1100011",
+                "1100011",
+                "1100011",
+                "1100011",
+                "1100011",
+                "1100011",
             ]
         case .chevronLeft:
             return [
@@ -545,6 +578,21 @@ private extension NotchPixelIcon {
         case .search:
             return NotchSVGSymbol(
                 pathData: "M6 2h8v2H6V2zM4 6V4h2v2H4zm0 8H2V6h2v8zm2 2H4v-2h2v2zm8 0v2H6v-2h8zm2-2h-2v2h2v2h2v2h2v2h2v-2h-2v-2h-2v-2h-2v-2zm0-8h2v8h-2V6zm0 0V4h-2v2h2z",
+                renderingMode: .fill
+            )
+        case .people:
+            return NotchSVGSymbol(
+                pathData: "M9 5H7v2h2V5zm8 0h-2v2h2V5zM7 9H5v2H3v7h2v-5h2v5h2V9H7zm8 0h-2v2h-2v7h2v-5h2v5h2V9h-2zm-4 2h2v2h2v7h-2v-5H9v5H7v-7h2v-2h2V9z",
+                renderingMode: .fill
+            )
+        case .play:
+            return NotchSVGSymbol(
+                pathData: "M7 4h2v2h2v2h2v2h2v2h-2v2h-2v2H9v2H7V4z",
+                renderingMode: .fill
+            )
+        case .pause:
+            return NotchSVGSymbol(
+                pathData: "M7 4h4v16H7V4zm6 0h4v16h-4V4z",
                 renderingMode: .fill
             )
         case .chevronLeft:

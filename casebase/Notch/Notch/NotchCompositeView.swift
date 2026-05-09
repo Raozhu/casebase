@@ -67,6 +67,7 @@ struct NotchCompositeView: View {
             EmptyView()
         case .hoverActions:
             NotchHoverActionsView(
+                onOpenMeeting: viewModel.openMeeting,
                 onOpenLibrary: viewModel.openLibrary,
                 onOpenSettings: viewModel.openSettings,
                 onOpenSearch: viewModel.openSearch,
@@ -75,6 +76,32 @@ struct NotchCompositeView: View {
                 showsScreenRecordingPrompt: !viewModel.screenshotCaptureAuthorized,
                 onAuthorizeScreenRecording: viewModel.openScreenRecordingSettings,
                 isMeasuring: forMeasurement
+            )
+        case .meeting:
+            NotchMeetingView(viewModel: viewModel, isMeasuring: forMeasurement)
+        case .meetingDiscardConfirmation:
+            NotchMeetingConfirmationView(
+                title: viewModel.meetingDiscardConfirmationTitle,
+                detail: viewModel.meetingDiscardConfirmationDetail,
+                confirmTitle: viewModel.meetingDiscardConfirmationConfirmTitle,
+                confirmIcon: .trash,
+                isConfirmDestructive: true,
+                isProcessing: viewModel.isMeetingRecorderBusy,
+                isMeasuring: forMeasurement,
+                onBack: viewModel.dismissMeetingDiscardConfirmation,
+                onConfirm: viewModel.confirmMeetingDiscard
+            )
+        case .meetingFinishConfirmation:
+            NotchMeetingConfirmationView(
+                title: viewModel.meetingFinishConfirmationTitle,
+                detail: viewModel.meetingFinishConfirmationDetail,
+                confirmTitle: viewModel.meetingFinishConfirmationConfirmTitle,
+                confirmIcon: .check,
+                isConfirmDestructive: false,
+                isProcessing: viewModel.isMeetingRecorderBusy,
+                isMeasuring: forMeasurement,
+                onBack: viewModel.dismissMeetingFinishConfirmation,
+                onConfirm: viewModel.confirmMeetingFinish
             )
         case .library:
             NotchLibraryView(viewModel: viewModel, isMeasuring: forMeasurement)
@@ -145,7 +172,7 @@ struct NotchCompositeView: View {
 
     private var showsChromeSettingsButton: Bool {
         switch viewModel.surfaceState {
-        case .idle, .hoverActions, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .savedPreview, .search:
+        case .idle, .hoverActions, .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .savedPreview, .search:
             return false
         case .ingesting, .answering, .answerReady, .error:
             return true

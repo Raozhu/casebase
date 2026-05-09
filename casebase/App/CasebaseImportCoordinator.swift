@@ -27,6 +27,26 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         let baseScore: Double
     }
 
+    private struct MeetingImportDraft {
+        let contentType: String
+        let scene: String
+        let purpose: String
+        let title: String
+        let shortSummary: String
+        let usefulSnippets: [String]
+        let tags: [String]
+        let structuredData: [String: StructuredFieldValue]
+        let searchText: String
+        let transcriptText: String?
+        let needsReview: Bool
+        let parseStatus: RecordParseStatus
+    }
+
+    private struct MeetingTranscriptionOutcome {
+        let transcription: AudioTranscription?
+        let failureDescription: String?
+    }
+
     private let userSupplementMetadataKey = CasebasePromptCatalog.ai.userSupplementMetadataKey
     private let previousAnalysisMetadataKey = "__casebase_previousAnalysis"
     private let clarificationHistoryMetadataKey = "__casebase_clarificationHistory"
@@ -270,22 +290,29 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
     private let aiClient: AIClient
     private let assetVault: AssetVault
     private let maximumImportFileBytes: Int64
+    private let meetingTranscriber: AudioTranscriber?
 
     init(
         extractor: Extractor,
         knowledgeStore: KnowledgeStore,
         aiClient: AIClient,
         assetVault: AssetVault,
-        maximumImportFileBytes: Int64
+        maximumImportFileBytes: Int64,
+        meetingTranscriber: AudioTranscriber? = nil
     ) {
         self.extractor = extractor
         self.knowledgeStore = knowledgeStore
         self.aiClient = aiClient
         self.assetVault = assetVault
         self.maximumImportFileBytes = maximumImportFileBytes
+        self.meetingTranscriber = meetingTranscriber
     }
 
     func importPayload(_ payload: ImportPayload, progress: ImportProgressHandler?) async throws -> ImportRecord {
+        if MeetingRecordMetadata.isMeetingPayload(payload) {
+            return try await importMeetingPayload(payload, progress: progress)
+        }
+
         let importStartedAt = Date()
         let payloadContext = payloadLogContext(payload)
         CasebaseDebugLogger.log("import request started \(payloadContext)")
@@ -455,6 +482,142 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         }
         CasebaseDebugLogger.log(
             "import request finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: importStartedAt)) \(storedAssetLogContext(organizedAsset)) recordID=\(record.id.uuidString) reusedExisting=false"
+        )
+        return record
+    }
+
+    private func importMeetingPayload(
+        _ payload: ImportPayload,
+        progress: ImportProgressHandler?
+    ) async throws -> ImportRecord {
+        let importStartedAt = Date()
+        let payloadContext = payloadLogContext(payload)
+        CasebaseDebugLogger.log("meeting import request started \(payloadContext)")
+
+        guard case let .file(filePayload) = payload else {
+            throw CasebaseError.invalidPayload(
+                CasebasePromptCatalog.errors.audioExtractionRequiresFileBackedPayload
+            )
+        }
+
+        progress?(ImportProgressUpdate(
+            phase: .preparing,
+            detailText: CasebasePromptCatalog.errors.importStageSavingAsset
+        ))
+        let storedAsset = try await measureImportStage(
+            "meeting-store-asset",
+            context: payloadContext,
+            successSummary: { [self] storedAsset in
+                storedAssetLogContext(storedAsset)
+            }
+        ) {
+            try await assetVault.store(payload)
+        }
+
+        if var existingRecord = try await knowledgeStore.findRecord(byAssetHash: storedAsset.assetHash) {
+            progress?(ImportProgressUpdate(
+                phase: .storing,
+                detailText: CasebasePromptCatalog.errors.importStageUpdatingExistingRecord
+            ))
+            let organizedAsset = try await measureImportStage(
+                "meeting-organize-existing-asset",
+                context: storedAssetLogContext(storedAsset),
+                successSummary: { [self] organizedAsset in
+                    organizedAssetLogSummary(organizedAsset)
+                }
+            ) {
+                try await organizeStoredAsset(
+                    storedAsset,
+                    using: purposeFolderContext(for: existingRecord),
+                    embedding: existingRecord.embedding,
+                    currentFolderHint: currentPurposeFolderName(from: existingRecord.assetPath)
+                )
+            }
+            existingRecord.assetPath = organizedAsset.assetPath
+            existingRecord.fileName = organizedAsset.fileName
+            existingRecord.mimeType = organizedAsset.mimeType
+            existingRecord.sourceKind = organizedAsset.sourceKind
+            existingRecord.registerReimport()
+            try await measureImportStage(
+                "meeting-update-existing-record",
+                context: storedAssetLogContext(organizedAsset),
+                successSummary: { _ in
+                    "recordID=\(existingRecord.id.uuidString)"
+                }
+            ) {
+                try await knowledgeStore.update(existingRecord)
+            }
+            CasebaseDebugLogger.log(
+                "meeting import request finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: importStartedAt)) \(storedAssetLogContext(organizedAsset)) recordID=\(existingRecord.id.uuidString) reusedExisting=true"
+            )
+            return existingRecord
+        }
+
+        let transcriptionOutcome = await transcribeMeetingAsset(
+            storedAsset,
+            fallbackFilePayload: filePayload,
+            progress: progress
+        )
+        let draft = buildMeetingImportDraft(
+            storedAsset: storedAsset,
+            metadata: filePayload.contextMetadata,
+            transcription: transcriptionOutcome.transcription,
+            failureDescription: transcriptionOutcome.failureDescription
+        )
+
+        let organizedAsset = try await measureImportStage(
+            "meeting-organize-asset",
+            context: storedAssetLogContext(storedAsset),
+            successSummary: { [self] organizedAsset in
+                organizedAssetLogSummary(organizedAsset)
+            }
+        ) {
+            try await organizeStoredAsset(
+                storedAsset,
+                using: purposeFolderContext(for: draft),
+                embedding: []
+            )
+        }
+
+        let record = ImportRecord(
+            assetPath: organizedAsset.assetPath,
+            assetHash: organizedAsset.assetHash,
+            fileName: organizedAsset.fileName,
+            mimeType: organizedAsset.mimeType,
+            sourceKind: organizedAsset.sourceKind,
+            contentType: draft.contentType,
+            scene: draft.scene,
+            purpose: draft.purpose,
+            title: draft.title,
+            shortSummary: draft.shortSummary,
+            usefulSnippets: draft.usefulSnippets,
+            tags: draft.tags,
+            structuredData: draft.structuredData,
+            searchText: draft.searchText,
+            userSupplement: draft.transcriptText,
+            clarificationRequest: nil,
+            clarificationHistory: [],
+            clarificationRoundCount: 0,
+            needsReview: draft.needsReview,
+            embedding: [],
+            parseStatus: draft.parseStatus
+        )
+
+        progress?(ImportProgressUpdate(
+            phase: .storing,
+            detailText: CasebasePromptCatalog.errors.importStageSavingRecord
+        ))
+        try await measureImportStage(
+            "meeting-save-record",
+            context: storedAssetLogContext(organizedAsset),
+            successSummary: { _ in
+                "recordID=\(record.id.uuidString) parseStatus=\(draft.parseStatus.rawValue)"
+            }
+        ) {
+            try await knowledgeStore.save(record)
+        }
+        CasebaseDebugLogger.log(
+            "meeting import request finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: importStartedAt)) \(storedAssetLogContext(organizedAsset)) recordID=\(record.id.uuidString) reusedExisting=false parseStatus=\(draft.parseStatus.rawValue)"
         )
         return record
     }
@@ -729,6 +892,334 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             tags: record.tags,
             searchText: record.searchText
         )
+    }
+
+    private func purposeFolderContext(for draft: MeetingImportDraft) -> PurposeFolderContext {
+        PurposeFolderContext(
+            purpose: draft.purpose,
+            title: draft.title,
+            scene: draft.scene,
+            tags: draft.tags,
+            searchText: draft.searchText
+        )
+    }
+
+    private func transcribeMeetingAsset(
+        _ storedAsset: StoredAsset,
+        fallbackFilePayload: FileImportPayload,
+        progress: ImportProgressHandler?
+    ) async -> MeetingTranscriptionOutcome {
+        progress?(ImportProgressUpdate(
+            phase: .recognizing,
+            detailText: CasebasePromptCatalog.errors.importStageTranscribingMeetingLocally
+        ))
+
+        guard let meetingTranscriber else {
+            let error = CasebaseError.missingConfiguration("oMLX local meeting transcription")
+            return MeetingTranscriptionOutcome(
+                transcription: nil,
+                failureDescription: (error as LocalizedError).errorDescription ?? error.localizedDescription
+            )
+        }
+
+        let transcriptionStartedAt = Date()
+        CasebaseDebugLogger.log(
+            "meeting transcription started \(storedAssetLogContext(storedAsset))"
+        )
+
+        do {
+            let transcription = try await meetingTranscriber.transcribe(
+                fileURL: await assetVault.url(for: storedAsset.assetPath),
+                mimeType: storedAsset.mimeType ?? fallbackFilePayload.mimeType
+            )
+            let transcriptLength = transcription.text.trimmingCharacters(in: .whitespacesAndNewlines).count
+            CasebaseDebugLogger.log(
+                "meeting transcription finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: transcriptionStartedAt)) \(storedAssetLogContext(storedAsset)) transcriptChars=\(transcriptLength)"
+            )
+            return MeetingTranscriptionOutcome(
+                transcription: transcription,
+                failureDescription: nil
+            )
+        } catch {
+            let failureDescription = normalizedFailureDescription(from: error)
+            CasebaseDebugLogger.log(
+                "meeting transcription failed elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: transcriptionStartedAt)) \(storedAssetLogContext(storedAsset)) error=\(sanitizedLogValue(failureDescription))"
+            )
+            return MeetingTranscriptionOutcome(
+                transcription: nil,
+                failureDescription: failureDescription
+            )
+        }
+    }
+
+    private func buildMeetingImportDraft(
+        storedAsset: StoredAsset,
+        metadata: [String: String],
+        transcription: AudioTranscription?,
+        failureDescription: String?
+    ) -> MeetingImportDraft {
+        let topic = metadata[MeetingRecordMetadata.topicKey]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let participantCount = Int(metadata[MeetingRecordMetadata.participantCountKey] ?? "") ?? 2
+        let durationSeconds = Double(metadata[MeetingRecordMetadata.durationSecondsKey] ?? "") ?? 0
+        let startedAt = Self.meetingMetadataDateFormatter.date(
+            from: metadata[MeetingRecordMetadata.startedAtKey] ?? ""
+        ) ?? Date()
+
+        let transcriptText = transcription?.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let transcriptExcerpt = transcriptText.flatMap { trimmedMeetingExcerpt(from: $0, limit: 220) }
+        let contentType = meetingLabel(chinese: "会议录音", english: "Meeting Recording")
+        let scene = meetingLabel(chinese: "会议", english: "Meeting")
+        let purpose = meetingLabel(chinese: "会议记录", english: "Meeting Notes")
+        let title = meetingTitle(topic: topic, startedAt: startedAt)
+        let shortSummary = meetingSummary(
+            topic: topic,
+            participantCount: participantCount,
+            durationSeconds: durationSeconds,
+            transcriptExcerpt: transcriptExcerpt,
+            failureDescription: failureDescription
+        )
+        let usefulSnippets = meetingSnippets(
+            transcription: transcription,
+            transcriptText: transcriptText,
+            failureDescription: failureDescription
+        )
+        var tags = [
+            meetingLabel(chinese: "会议", english: "meeting"),
+            meetingLabel(chinese: "录音", english: "recording"),
+            meetingLabel(chinese: "本地转写", english: "local-asr"),
+        ]
+        if !topic.isEmpty, topic.count <= 24 {
+            tags.append(topic)
+        }
+
+        var structuredData: [String: StructuredFieldValue] = [
+            MeetingRecordMetadata.sourceKey: .string(MeetingRecordMetadata.sourceValue),
+            MeetingRecordMetadata.participantCountKey: .number(Double(participantCount)),
+            MeetingRecordMetadata.durationSecondsKey: .number(durationSeconds),
+            MeetingRecordMetadata.startedAtKey: .string(Self.meetingMetadataDateFormatter.string(from: startedAt)),
+            MeetingRecordMetadata.transcriptionModelKey: .string("VibeVoice-ASR-4bit"),
+        ]
+        if !topic.isEmpty {
+            structuredData[MeetingRecordMetadata.topicKey] = .string(topic)
+        }
+        if let language = transcription?.language?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !language.isEmpty
+        {
+            structuredData[MeetingRecordMetadata.transcriptionLanguageKey] = .string(language)
+        }
+        if let transcriptExcerpt {
+            structuredData[MeetingRecordMetadata.transcriptExcerptKey] = .string(transcriptExcerpt)
+        }
+        let segmentValues = structuredValues(for: transcription?.segments ?? [])
+        if !segmentValues.isEmpty {
+            structuredData[MeetingRecordMetadata.transcriptSegmentsKey] = .array(segmentValues)
+        }
+        if let failureDescription, !failureDescription.isEmpty {
+            structuredData[MeetingRecordMetadata.transcriptionErrorKey] = .string(failureDescription)
+        }
+
+        let searchText = limitedMeetingSearchText(
+            title: title,
+            shortSummary: shortSummary,
+            contentType: contentType,
+            scene: scene,
+            purpose: purpose,
+            tags: tags,
+            topic: topic,
+            transcriptText: transcriptText,
+            failureDescription: failureDescription
+        )
+        let parseStatus: RecordParseStatus = transcriptText?.isEmpty == false ? .ready : .partial
+
+        return MeetingImportDraft(
+            contentType: contentType,
+            scene: scene,
+            purpose: purpose,
+            title: title,
+            shortSummary: shortSummary,
+            usefulSnippets: usefulSnippets,
+            tags: tags,
+            structuredData: structuredData,
+            searchText: searchText,
+            transcriptText: transcriptText,
+            needsReview: parseStatus != .ready,
+            parseStatus: parseStatus
+        )
+    }
+
+    private func meetingTitle(topic: String, startedAt: Date) -> String {
+        let timestamp = Self.meetingTitleDateFormatter.string(from: startedAt)
+        guard !topic.isEmpty else {
+            return meetingLabel(
+                chinese: "会议录音 \(timestamp)",
+                english: "Meeting Recording \(timestamp)"
+            )
+        }
+        return meetingLabel(
+            chinese: "会议：\(topic)",
+            english: "Meeting: \(topic)"
+        )
+    }
+
+    private func meetingSummary(
+        topic: String,
+        participantCount: Int,
+        durationSeconds: Double,
+        transcriptExcerpt: String?,
+        failureDescription: String?
+    ) -> String {
+        let durationText = formattedMeetingDuration(durationSeconds)
+        let meetingLead = meetingLabel(
+            chinese: "\(max(1, participantCount)) 人会议，时长 \(durationText)。",
+            english: "\(max(1, participantCount))-person meeting, duration \(durationText)."
+        )
+
+        if let transcriptExcerpt, !transcriptExcerpt.isEmpty {
+            return [meetingLead, transcriptExcerpt].joined(separator: " ")
+        }
+
+        if let failureDescription, !failureDescription.isEmpty {
+            return [
+                meetingLead,
+                meetingLabel(
+                    chinese: "录音已保存，但本地转写失败。",
+                    english: "The recording was saved, but local transcription failed."
+                ),
+            ].joined(separator: " ")
+        }
+
+        let fallbackTail = topic.isEmpty
+            ? meetingLabel(
+                chinese: "录音已保存，暂未生成转写文本。",
+                english: "The recording was saved without transcript text yet."
+            )
+            : meetingLabel(
+                chinese: "主题：\(topic)。录音已保存，暂未生成转写文本。",
+                english: "Topic: \(topic). The recording was saved without transcript text yet."
+            )
+        return [meetingLead, fallbackTail].joined(separator: " ")
+    }
+
+    private func meetingSnippets(
+        transcription: AudioTranscription?,
+        transcriptText: String?,
+        failureDescription: String?
+    ) -> [String] {
+        if let transcription, !transcription.segments.isEmpty {
+            let snippets = transcription.segments
+                .map(\.text)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .prefix(6)
+                .map { String($0.prefix(220)) }
+            if !snippets.isEmpty {
+                return Array(snippets)
+            }
+        }
+
+        if let transcriptText, !transcriptText.isEmpty {
+            let snippets = transcriptText
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .prefix(6)
+                .map { String($0.prefix(220)) }
+            if !snippets.isEmpty {
+                return Array(snippets)
+            }
+
+            return [String(transcriptText.prefix(220))]
+        }
+
+        if let failureDescription, !failureDescription.isEmpty {
+            return [failureDescription]
+        }
+
+        return []
+    }
+
+    private func structuredValues(for segments: [AudioTranscriptionSegment]) -> [StructuredFieldValue] {
+        segments.map { segment in
+            var object: [String: StructuredFieldValue] = [
+                "text": .string(segment.text)
+            ]
+            if let start = segment.start {
+                object["start"] = .number(start)
+            }
+            if let end = segment.end {
+                object["end"] = .number(end)
+            }
+            if let speakerID = segment.speakerID {
+                object["speakerID"] = .number(Double(speakerID))
+            }
+            return .object(object)
+        }
+    }
+
+    private func limitedMeetingSearchText(
+        title: String,
+        shortSummary: String,
+        contentType: String,
+        scene: String,
+        purpose: String,
+        tags: [String],
+        topic: String,
+        transcriptText: String?,
+        failureDescription: String?
+    ) -> String {
+        var components = [title, shortSummary, contentType, scene, purpose]
+        if !topic.isEmpty {
+            components.append(topic)
+        }
+        components.append(contentsOf: tags)
+        if let failureDescription, !failureDescription.isEmpty {
+            components.append(failureDescription)
+        }
+        if let transcriptText, !transcriptText.isEmpty {
+            components.append(String(transcriptText.prefix(12_000)))
+        }
+        return components
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func formattedMeetingDuration(_ durationSeconds: Double) -> String {
+        let totalSeconds = max(0, Int(durationSeconds.rounded(.down)))
+        let hours = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    private func meetingLabel(chinese: String, english: String) -> String {
+        switch CasebasePromptCatalog.language {
+        case .simplifiedChinese:
+            return chinese
+        case .english:
+            return english
+        }
+    }
+
+    private func trimmedMeetingExcerpt(from transcriptText: String, limit: Int) -> String? {
+        let normalized = transcriptText
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return nil
+        }
+
+        if normalized.count <= limit {
+            return normalized
+        }
+
+        let endIndex = normalized.index(normalized.startIndex, offsetBy: limit)
+        return String(normalized[..<endIndex]).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
     private func organizeStoredAsset(
@@ -1649,4 +2140,17 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             .map { "- \($0)" }
             .joined(separator: "\n")
     }
+
+    private static let meetingMetadataDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let meetingTitleDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter
+    }()
 }

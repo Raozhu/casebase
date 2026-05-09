@@ -79,6 +79,7 @@ struct NotchLibraryDetailView: View {
             heroCard(record: record)
             metadataCard(record: record)
             structuredDataCard(record: record)
+            transcriptCard(record: record)
             snippetsCard(record: record)
 
             if let libraryErrorMessage = viewModel.libraryErrorMessage, !libraryErrorMessage.isEmpty {
@@ -326,6 +327,33 @@ struct NotchLibraryDetailView: View {
                                     .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
                             }
                     }
+                }
+            }
+        }
+    }
+
+    private func transcriptCard(record: ImportRecord) -> some View {
+        Group {
+            if MeetingRecordMetadata.isMeetingRecord(record),
+               let transcript = record.userSupplement?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !transcript.isEmpty
+            {
+                librarySectionCard(title: CasebasePromptCatalog.ui.libraryTranscriptSectionTitle) {
+                    Text(transcript)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.05))
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                        }
                 }
             }
         }

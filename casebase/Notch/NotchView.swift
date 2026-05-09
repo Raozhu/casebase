@@ -201,7 +201,7 @@ private struct PixelCollapsedIndicatorBadge: View {
         switch indicator {
         case .preparing, .recognizing, .storing:
             return true
-        case .warning, .error, .needsInput, .success:
+        case .warning, .error, .recording, .paused, .needsInput, .success:
             return false
         }
     }
@@ -212,6 +212,10 @@ private struct PixelCollapsedIndicatorBadge: View {
             return PixelGlyphPattern.exclamation
         case .error:
             return PixelGlyphPattern.cross
+        case .recording:
+            return PixelGlyphPattern.audio
+        case .paused:
+            return PixelGlyphPattern.pause
         case .needsInput:
             return PixelGlyphPattern.question
         case .success:
@@ -227,6 +231,10 @@ private struct PixelCollapsedIndicatorBadge: View {
             return Color(red: 0.29, green: 0.20, blue: 0.05)
         case .error:
             return Color(red: 0.29, green: 0.08, blue: 0.09)
+        case .recording:
+            return Color(red: 0.29, green: 0.07, blue: 0.08)
+        case .paused:
+            return Color(red: 0.16, green: 0.18, blue: 0.22)
         case .preparing:
             return Color(red: 0.17, green: 0.18, blue: 0.22)
         case .recognizing:
@@ -250,6 +258,10 @@ private struct PixelCollapsedIndicatorBadge: View {
             return Color(red: 1.0, green: 0.88, blue: 0.46)
         case .error:
             return Color(red: 1.0, green: 0.76, blue: 0.78)
+        case .recording:
+            return Color(red: 1.0, green: 0.86, blue: 0.88)
+        case .paused:
+            return Color.white.opacity(0.82)
         case .preparing:
             return Color.white.opacity(0.86)
         case .recognizing:
@@ -269,6 +281,10 @@ private struct PixelCollapsedIndicatorBadge: View {
             return Color(red: 1.0, green: 0.78, blue: 0.22)
         case .error:
             return Color(red: 0.94, green: 0.27, blue: 0.29)
+        case .recording:
+            return Color(red: 1.0, green: 0.29, blue: 0.38)
+        case .paused:
+            return Color.white.opacity(0.62)
         case .preparing:
             return Color.white.opacity(0.72)
         case .recognizing:
@@ -288,6 +304,10 @@ private struct PixelCollapsedIndicatorBadge: View {
 
     private var pulseFrequency: Double {
         switch indicator {
+        case .recording:
+            return 5.4
+        case .paused:
+            return 2.2
         case .preparing:
             return 2.8
         case .recognizing:
@@ -305,6 +325,10 @@ private struct PixelCollapsedIndicatorBadge: View {
 
     private var pulseAmplitude: CGFloat {
         switch indicator {
+        case .recording:
+            return 0.05
+        case .paused:
+            return 0.015
         case .warning, .needsInput, .success:
             return 0.03
         case .error:
@@ -316,6 +340,10 @@ private struct PixelCollapsedIndicatorBadge: View {
 
     private var bobAmplitude: CGFloat {
         switch indicator {
+        case .recording:
+            return 0.6
+        case .paused:
+            return 0.15
         case .preparing, .recognizing, .storing:
             return 0.8
         case .warning, .needsInput, .success:
@@ -413,6 +441,26 @@ private enum PixelGlyphPattern {
         "0011100",
         "0100010",
         "1111111",
+    ]
+
+    static let audio = [
+        "0100010",
+        "0100010",
+        "0110110",
+        "0111110",
+        "0011100",
+        "0011100",
+        "0001000",
+    ]
+
+    static let pause = [
+        "1100011",
+        "1100011",
+        "1100011",
+        "1100011",
+        "1100011",
+        "1100011",
+        "1100011",
     ]
 
     static func hourglassSand(step: Int) -> [String] {

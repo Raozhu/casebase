@@ -80,6 +80,15 @@ enum ImportPayload: Hashable {
             return .text
         }
     }
+
+    var contextMetadata: [String: String] {
+        switch self {
+        case let .file(payload):
+            return payload.contextMetadata
+        case let .text(payload):
+            return payload.contextMetadata
+        }
+    }
 }
 
 enum NormalizedAttachmentKind: String, Codable, Hashable {
