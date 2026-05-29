@@ -26,6 +26,8 @@ struct NotchCitationCardView: View {
             return CasebasePromptCatalog.language == .simplifiedChinese ? "PDF" : "PDF"
         case .audio:
             return CasebasePromptCatalog.language == .simplifiedChinese ? "音频" : "Audio"
+        case .folder:
+            return CasebasePromptCatalog.language == .simplifiedChinese ? "文件夹" : "Folder"
         case .binary:
             return CasebasePromptCatalog.language == .simplifiedChinese ? "文档" : "Document"
         }

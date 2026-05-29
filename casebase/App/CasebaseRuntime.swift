@@ -15,13 +15,22 @@ struct CasebaseRuntime {
     @MainActor
     static func bootstrap() throws -> CasebaseRuntime {
         let configuration = try CasebaseConfiguration.load()
-        let aiClient = GeminiAIClient(configuration: configuration)
+        let deepSeekClient = DeepSeekAIClient(configuration: configuration)
+        let geminiClient = configuration.ai.googleAPIKey == nil
+            ? nil
+            : GeminiAIClient(configuration: configuration)
+        let aiClient = CasebaseRoutedAIClient(
+            deepSeekClient: deepSeekClient,
+            geminiClient: geminiClient
+        )
         let extractor = CompositeExtractor(configuration: configuration)
         let assetVault = AssetVault(configuration: configuration.storage)
         let knowledgeStore = try LocalKnowledgeStore(configuration: configuration.storage)
+        let visibleShortcutService = CasebaseVisibleShortcutService(configuration: configuration.storage)
         let libraryService = CasebaseLibraryService(
             configuration: configuration.storage,
-            knowledgeStore: knowledgeStore
+            knowledgeStore: knowledgeStore,
+            visibleShortcutService: visibleShortcutService
         )
         let importCoordinator = CasebaseImportCoordinator(
             extractor: extractor,
@@ -29,6 +38,7 @@ struct CasebaseRuntime {
             aiClient: aiClient,
             assetVault: assetVault,
             maximumImportFileBytes: configuration.ai.maxImportFileBytes,
+            visibleShortcutService: visibleShortcutService,
             meetingTranscriber: try? OMLXAudioTranscriber()
         )
         let answerService = KnowledgeBackedAnswerService(
@@ -40,7 +50,8 @@ struct CasebaseRuntime {
         )
         let dataResetService = CasebaseDataResetService(
             knowledgeStore: knowledgeStore,
-            assetVault: assetVault
+            assetVault: assetVault,
+            visibleShortcutService: visibleShortcutService
         )
         let meetingRecorder = CasebaseMeetingRecorder()
 

@@ -180,12 +180,15 @@ actor LocalKnowledgeStore: KnowledgeStore {
         let tokens = tokenize(normalizedQuery)
 
         if !tokens.isEmpty {
-            return try searchRecordsUsingFTS(
+            let ftsPage = try searchRecordsUsingFTS(
                 queryTokens: tokens,
                 limit: normalizedLimit,
                 offset: normalizedOffset,
                 filters: filters
             )
+            if !ftsPage.items.isEmpty || ftsPage.hasMore {
+                return ftsPage
+            }
         }
 
         return try searchRecordsUsingLike(
@@ -250,12 +253,18 @@ actor LocalKnowledgeStore: KnowledgeStore {
     func search(query: String, embedding: [Float], limit: Int, scope: AnswerQueryScope) async throws -> [SearchHit] {
         let cappedLimit = max(1, limit)
         let tokens = tokenize(query)
+        let normalizedQuery = normalizeSearchQuery(query)
 
         let candidates: [ImportRecord]
 
         switch scope {
         case .global:
-            candidates = try globalCandidates(tokens: tokens, limit: cappedLimit)
+            candidates = try globalCandidates(
+                query: normalizedQuery,
+                tokens: tokens,
+                embedding: embedding,
+                limit: cappedLimit
+            )
         case let .recordIDs(ids):
             guard !ids.isEmpty else {
                 return []
@@ -264,20 +273,20 @@ actor LocalKnowledgeStore: KnowledgeStore {
         }
 
         let scored = candidates.map { record -> SearchHit in
-            let textScore = keywordScore(for: record, tokens: tokens)
+            let textScore = keywordScore(for: record, query: normalizedQuery, tokens: tokens)
             let vectorScore = cosineSimilarity(lhs: embedding, rhs: record.embedding)
             let effectiveScore: Double
-            if tokens.isEmpty {
-                effectiveScore = vectorScore
-            } else if embedding.isEmpty {
+            if embedding.isEmpty {
                 effectiveScore = textScore
+            } else if tokens.isEmpty {
+                effectiveScore = vectorScore
             } else {
                 effectiveScore = (textScore * 0.65) + (vectorScore * 0.35)
             }
             return SearchHit(
                 record: record,
                 score: effectiveScore,
-                matchedSnippets: matchedSnippets(for: record, tokens: tokens)
+                matchedSnippets: matchedSnippets(for: record, query: normalizedQuery, tokens: tokens)
             )
         }
         .sorted { lhs, rhs in
@@ -290,7 +299,12 @@ actor LocalKnowledgeStore: KnowledgeStore {
         return Array(scored.prefix(cappedLimit))
     }
 
-    private func globalCandidates(tokens: [String], limit: Int) throws -> [ImportRecord] {
+    private func globalCandidates(
+        query: String,
+        tokens: [String],
+        embedding: [Float],
+        limit: Int
+    ) throws -> [ImportRecord] {
         var candidates: [ImportRecord] = []
         var seenIDs = Set<UUID>()
 
@@ -341,7 +355,63 @@ actor LocalKnowledgeStore: KnowledgeStore {
             }
         }
 
-        if candidates.isEmpty {
+        if candidates.isEmpty, !query.isEmpty {
+            let pattern = "%\(query)%"
+            let statement = try database.prepare("""
+                SELECT
+                    id,
+                    asset_path,
+                    asset_hash,
+                    file_name,
+                    mime_type,
+                    source_kind,
+                    content_type,
+                    scene,
+                    purpose,
+                    title,
+                    short_summary,
+                    useful_snippets_json,
+                    tags_json,
+                    structured_data_json,
+                    search_text,
+                    user_supplement,
+                    clarification_request_json,
+                    clarification_history_json,
+                    clarification_round_count,
+                    needs_review,
+                    embedding_json,
+                    parse_status,
+                    created_at,
+                    updated_at,
+                    import_count
+                FROM records
+                WHERE
+                    title LIKE ? COLLATE NOCASE OR
+                    short_summary LIKE ? COLLATE NOCASE OR
+                    search_text LIKE ? COLLATE NOCASE OR
+                    tags_json LIKE ? COLLATE NOCASE OR
+                    useful_snippets_json LIKE ? COLLATE NOCASE
+                ORDER BY updated_at DESC
+                LIMIT ?;
+                """)
+            defer { database.finalize(statement) }
+
+            try database.bind(pattern, at: 1, in: statement)
+            try database.bind(pattern, at: 2, in: statement)
+            try database.bind(pattern, at: 3, in: statement)
+            try database.bind(pattern, at: 4, in: statement)
+            try database.bind(pattern, at: 5, in: statement)
+            try database.bind(max(limit * 12, 48), at: 6, in: statement)
+
+            while try database.step(statement) == SQLITE_ROW {
+                let record = try decodeRecord(from: statement)
+                if seenIDs.insert(record.id).inserted {
+                    candidates.append(record)
+                }
+            }
+        }
+
+        if candidates.isEmpty, !embedding.isEmpty {
             let statement = try database.prepare("""
                 SELECT
                     id,
@@ -841,7 +911,8 @@ actor LocalKnowledgeStore: KnowledgeStore {
                 r.title LIKE ? COLLATE NOCASE OR
                 r.short_summary LIKE ? COLLATE NOCASE OR
                 r.search_text LIKE ? COLLATE NOCASE OR
-                r.tags_json LIKE ? COLLATE NOCASE
+                r.tags_json LIKE ? COLLATE NOCASE OR
+                r.useful_snippets_json LIKE ? COLLATE NOCASE
             )
             """
         ] + filterClauses
@@ -859,6 +930,8 @@ actor LocalKnowledgeStore: KnowledgeStore {
         defer { database.finalize(statement) }
 
         var index: Int32 = 1
+        try database.bind(pattern, at: index, in: statement)
+        index += 1
         try database.bind(pattern, at: index, in: statement)
         index += 1
         try database.bind(pattern, at: index, in: statement)
@@ -978,17 +1051,40 @@ actor LocalKnowledgeStore: KnowledgeStore {
     }
 
     private func tokenize(_ query: String) -> [String] {
-        query
+        var tokens = query
             .lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count >= 2 }
-    }
 
-    private func keywordScore(for record: ImportRecord, tokens: [String]) -> Double {
-        guard !tokens.isEmpty else {
-            return 0
+        let range = NSRange(location: 0, length: query.utf16.count)
+        let hanRuns = (try? NSRegularExpression(pattern: "\\p{Han}+"))?
+            .matches(in: query, options: [], range: range)
+            .compactMap { match -> String? in
+                guard let matchRange = Range(match.range, in: query) else { return nil }
+                return String(query[matchRange])
+            } ?? []
+        for run in hanRuns {
+            if run.count <= 8 {
+                tokens.append(run)
+            }
+
+            let characters = Array(run)
+            for index in characters.indices.dropLast() {
+                tokens.append(String(characters[index...characters.index(after: index)]))
+            }
         }
 
+        return Array(NSOrderedSet(array: tokens)) as? [String] ?? tokens
+    }
+
+    private func normalizeSearchQuery(_ query: String) -> String {
+        query
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private func keywordScore(for record: ImportRecord, query: String, tokens: [String]) -> Double {
         let haystack = [
             record.title,
             record.shortSummary,
@@ -999,22 +1095,32 @@ actor LocalKnowledgeStore: KnowledgeStore {
         .joined(separator: " ")
         .lowercased()
 
+        guard !tokens.isEmpty else {
+            guard !query.isEmpty else { return 0 }
+            return haystack.contains(query) ? 1 : 0
+        }
+
         let hitCount = tokens.reduce(into: 0) { partialResult, token in
             if haystack.contains(token) {
                 partialResult += 1
             }
         }
 
-        return Double(hitCount) / Double(tokens.count)
+        let tokenScore = Double(hitCount) / Double(tokens.count)
+        let queryBonus = !query.isEmpty && haystack.contains(query) ? 0.35 : 0
+        return min(1, tokenScore + queryBonus)
     }
 
-    private func matchedSnippets(for record: ImportRecord, tokens: [String]) -> [String] {
-        guard !tokens.isEmpty else {
+    private func matchedSnippets(for record: ImportRecord, query: String, tokens: [String]) -> [String] {
+        guard !tokens.isEmpty || !query.isEmpty else {
             return Array(record.usefulSnippets.prefix(2))
         }
 
         let matched = record.usefulSnippets.filter { snippet in
             let lowered = snippet.lowercased()
+            if !query.isEmpty, lowered.contains(query) {
+                return true
+            }
             return tokens.contains { lowered.contains($0) }
         }
 

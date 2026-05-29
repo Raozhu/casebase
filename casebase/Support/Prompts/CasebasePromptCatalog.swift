@@ -84,6 +84,27 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var hoverActionAPIKeyTitle: String {
+            switch language {
+            case .simplifiedChinese: return "请设置 DeepSeek API Key"
+            case .english: return "Set DeepSeek API Key"
+            }
+        }
+
+        var hoverActionAPIKeyDetail: String {
+            switch language {
+            case .simplifiedChinese: return ""
+            case .english: return ""
+            }
+        }
+
+        var hoverActionAPIKeyButton: String {
+            switch language {
+            case .simplifiedChinese: return "去设置"
+            case .english: return "Settings"
+            }
+        }
+
         var hoverActionSettingsTooltip: String {
             switch language {
             case .simplifiedChinese: return "设置"
@@ -348,6 +369,97 @@ enum CasebasePromptCatalog {
             switch language {
             case .simplifiedChinese: return "快捷键"
             case .english: return "Shortcuts"
+            }
+        }
+
+        var settingsAPIKeyLabel: String {
+            switch language {
+            case .simplifiedChinese: return "模型授权"
+            case .english: return "Model Access"
+            }
+        }
+
+        var settingsAPIKeyStatusConfigured: String {
+            switch language {
+            case .simplifiedChinese: return "DeepSeek API Key 已设置"
+            case .english: return "DeepSeek API Key is set"
+            }
+        }
+
+        var settingsAPIKeyStatusMissing: String {
+            switch language {
+            case .simplifiedChinese: return "未设置 DeepSeek API Key，入库和问答暂不可用。"
+            case .english: return "DeepSeek API Key is missing. Ingest and Q&A are unavailable."
+            }
+        }
+
+        var settingsAPIKeyPlaceholder: String {
+            switch language {
+            case .simplifiedChinese: return "输入 DeepSeek API Key"
+            case .english: return "Enter DeepSeek API Key"
+            }
+        }
+
+        var settingsAPIKeyConfiguredPlaceholder: String {
+            switch language {
+            case .simplifiedChinese: return "已设置，输入新 Key 可替换"
+            case .english: return "Already set. Enter a new key to replace it"
+            }
+        }
+
+        var settingsAPIKeySaveButtonTitle: String {
+            switch language {
+            case .simplifiedChinese: return "保存"
+            case .english: return "Save"
+            }
+        }
+
+        var settingsAPIKeySavedMessage: String {
+            switch language {
+            case .simplifiedChinese: return "已保存，正在重新加载配置。"
+            case .english: return "Saved. Reloading configuration."
+            }
+        }
+
+        var settingsAPIKeyEmptyMessage: String {
+            switch language {
+            case .simplifiedChinese: return "请输入 DeepSeek API Key。"
+            case .english: return "Enter a DeepSeek API Key."
+            }
+        }
+
+        var settingsGoogleAPIKeyStatusConfigured: String {
+            switch language {
+            case .simplifiedChinese: return "Google API Key 已设置：图片、PDF 与向量检索将走 Gemini。"
+            case .english: return "Google API Key is set. Images, PDFs, and embeddings will use Gemini."
+            }
+        }
+
+        var settingsGoogleAPIKeyStatusMissing: String {
+            switch language {
+            case .simplifiedChinese: return "Google API Key 未设置：图片、PDF 会先本地 OCR，再交给 DeepSeek。"
+            case .english: return "Google API Key is missing. Images and PDFs will use local OCR before DeepSeek."
+            }
+        }
+
+        var settingsGoogleAPIKeyPlaceholder: String {
+            switch language {
+            case .simplifiedChinese: return "可选：输入 Google API Key"
+            case .english: return "Optional: enter Google API Key"
+            }
+        }
+
+        var settingsGoogleAPIKeyConfiguredPlaceholder: String {
+            switch language {
+            case .simplifiedChinese: return "已设置，输入新 Google Key 可替换"
+            case .english: return "Already set. Enter a new Google key to replace it"
+            }
+        }
+
+        var settingsGoogleAPIKeyEmptyMessage: String {
+            switch language {
+            case .simplifiedChinese: return "请输入 Google API Key。"
+            case .english: return "Enter a Google API Key."
             }
         }
 
@@ -1230,6 +1342,7 @@ enum CasebasePromptCatalog {
                 - `searchText` 必须是高密度检索文本，整合标题、类别、用途、标签、关键事实，以及用户未来可能的查找方式。
                 - 若内容类型不明确、图片模糊、字段提取不完整或存在歧义，`needsReview` 设为 `true`。
                 - 如果输入中包含“用户补充上下文”，把它视为帮助理解原内容的附加说明；若与原内容冲突，优先保留可确认事实并保持 `needsReview = true`。
+                - 如果输入是“文件夹入库摘要”，它只是本地抽样，不是全文读取；请只根据目录结构、文件名、文件类型统计和少量片段判断文件夹用途，不要声称已经完整阅读所有文件。
                 - 如果输入中包含之前的分析结果、补全历史或“已跳过的问题”，把它们当成补充上下文；不要重复追问已经被跳过的同类问题，除非它仍然是唯一阻塞且你能明确说明原因。
                 - 当存在关键缺口时，同时输出 `clarification`：
                   1. `uncertaintySummary` 说明最关键的不确定点
@@ -1265,6 +1378,7 @@ enum CasebasePromptCatalog {
                 - `searchText` must be dense retrieval text combining title, category, purpose, tags, key facts, and likely future search phrasings.
                 - Set `needsReview` to `true` when the content type is ambiguous, the image is blurry, extraction is incomplete, or key fields remain uncertain.
                 - If a "user supplement" block is present, treat it as extra context for disambiguation. If it conflicts with the source, prefer confirmed facts and keep `needsReview = true`.
+                - If the input is a folder ingestion summary, it is a local sample rather than a full read. Infer the folder's purpose only from the structure, file names, type statistics, and sampled snippets; do not claim that every file was fully read.
                 - If previous analysis, clarification history, or skipped-question blocks are present, treat them as extra context. Do not repeat the same kind of skipped question unless it is still the only blocking gap and you can clearly justify asking it again.
                 - When key gaps remain, also populate `clarification`:
                   1. `uncertaintySummary` should name the most important uncertainty
@@ -1868,6 +1982,8 @@ enum CasebasePromptCatalog {
                 return "PDF 文档"
             case (.simplifiedChinese, .audio):
                 return "音频资料"
+            case (.simplifiedChinese, .folder):
+                return "文件夹资料"
             case (.simplifiedChinese, .binary):
                 return "文件资料"
             case (.english, .image):
@@ -1878,6 +1994,8 @@ enum CasebasePromptCatalog {
                 return "PDF document"
             case (.english, .audio):
                 return "Audio capture"
+            case (.english, .folder):
+                return "Folder capture"
             case (.english, .binary):
                 return "File capture"
             }
@@ -1894,11 +2012,11 @@ enum CasebasePromptCatalog {
             switch (language, sourceKind) {
             case (.simplifiedChinese, .image), (.simplifiedChinese, .pdf), (.simplifiedChinese, .text):
                 return "后续检索与问答"
-            case (.simplifiedChinese, .audio), (.simplifiedChinese, .binary):
+            case (.simplifiedChinese, .audio), (.simplifiedChinese, .folder), (.simplifiedChinese, .binary):
                 return "资料留存与后续检索"
             case (.english, .image), (.english, .pdf), (.english, .text):
                 return "Future lookup and question answering"
-            case (.english, .audio), (.english, .binary):
+            case (.english, .audio), (.english, .folder), (.english, .binary):
                 return "Reference storage and later lookup"
             }
         }
@@ -1914,11 +2032,11 @@ enum CasebasePromptCatalog {
             switch (language, sourceKind) {
             case (.simplifiedChinese, .image), (.simplifiedChinese, .pdf), (.simplifiedChinese, .text):
                 return "保留关键信息，便于未来搜索、比对和引用"
-            case (.simplifiedChinese, .audio), (.simplifiedChinese, .binary):
+            case (.simplifiedChinese, .audio), (.simplifiedChinese, .folder), (.simplifiedChinese, .binary):
                 return "留存原始资料，供未来检索与复用"
             case (.english, .image), (.english, .pdf), (.english, .text):
                 return "Preserve key facts for future search, comparison, and reuse"
-            case (.english, .audio), (.english, .binary):
+            case (.english, .audio), (.english, .folder), (.english, .binary):
                 return "Keep the source material available for later lookup and reuse"
             }
         }
@@ -1933,6 +2051,8 @@ enum CasebasePromptCatalog {
                 return "PDF 资料：\(fileName)"
             case (.simplifiedChinese, .audio):
                 return "音频资料：\(fileName)"
+            case (.simplifiedChinese, .folder):
+                return "文件夹资料：\(fileName)"
             case (.simplifiedChinese, .binary):
                 return "文件资料：\(fileName)"
             case (.english, .image):
@@ -1943,6 +2063,8 @@ enum CasebasePromptCatalog {
                 return "PDF Capture: \(fileName)"
             case (.english, .audio):
                 return "Audio Capture: \(fileName)"
+            case (.english, .folder):
+                return "Folder Capture: \(fileName)"
             case (.english, .binary):
                 return "File Capture: \(fileName)"
             }
@@ -2036,6 +2158,8 @@ enum CasebasePromptCatalog {
                 return "PDF"
             case (.simplifiedChinese, .audio):
                 return "音频"
+            case (.simplifiedChinese, .folder):
+                return "文件夹"
             case (.simplifiedChinese, .binary):
                 return "文件"
             case (.english, .image):
@@ -2046,6 +2170,8 @@ enum CasebasePromptCatalog {
                 return "pdf"
             case (.english, .audio):
                 return "audio"
+            case (.english, .folder):
+                return "folder"
             case (.english, .binary):
                 return "file"
             }
@@ -2269,7 +2395,7 @@ enum CasebasePromptCatalog {
         var geminiReturnedEmptyRequiredFields: String {
             switch language {
             case .simplifiedChinese: return "模型返回了空的必填字段。"
-            case .english: return "Gemini returned empty required fields."
+            case .english: return "AI returned empty required fields."
             }
         }
 

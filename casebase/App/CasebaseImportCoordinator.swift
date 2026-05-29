@@ -290,6 +290,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
     private let aiClient: AIClient
     private let assetVault: AssetVault
     private let maximumImportFileBytes: Int64
+    private let visibleShortcutService: CasebaseVisibleShortcutService?
     private let meetingTranscriber: AudioTranscriber?
 
     init(
@@ -298,6 +299,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         aiClient: AIClient,
         assetVault: AssetVault,
         maximumImportFileBytes: Int64,
+        visibleShortcutService: CasebaseVisibleShortcutService? = nil,
         meetingTranscriber: AudioTranscriber? = nil
     ) {
         self.extractor = extractor
@@ -305,6 +307,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         self.aiClient = aiClient
         self.assetVault = assetVault
         self.maximumImportFileBytes = maximumImportFileBytes
+        self.visibleShortcutService = visibleShortcutService
         self.meetingTranscriber = meetingTranscriber
     }
 
@@ -337,19 +340,44 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
                 phase: .storing,
                 detailText: CasebasePromptCatalog.errors.importStageUpdatingExistingRecord
             ))
-            let organizedAsset = try await measureImportStage(
-                "organize-existing-asset",
-                context: storedAssetLogContext(storedAsset),
-                successSummary: { [self] organizedAsset in
-                    organizedAssetLogSummary(organizedAsset)
+            let organizedAsset: StoredAsset
+            if await assetVault.assetExists(at: existingRecord.assetPath) {
+                try await measureImportStage(
+                    "discard-duplicate-asset",
+                    context: storedAssetLogContext(storedAsset),
+                    successSummary: { [self] _ in
+                        "preservedAssetPath=\(quotedLogValue(existingRecord.assetPath))"
+                    }
+                ) {
+                    try await assetVault.discardTemporaryAsset(
+                        storedAsset,
+                        preservingAssetPath: existingRecord.assetPath
+                    )
                 }
-            ) {
-                try await organizeStoredAsset(
-                    storedAsset,
-                    using: purposeFolderContext(for: existingRecord),
-                    embedding: existingRecord.embedding,
-                    currentFolderHint: currentPurposeFolderName(from: existingRecord.assetPath)
+                organizedAsset = StoredAsset(
+                    assetPath: existingRecord.assetPath,
+                    assetHash: existingRecord.assetHash,
+                    fileName: existingRecord.fileName,
+                    mimeType: existingRecord.mimeType,
+                    sourceKind: existingRecord.sourceKind,
+                    fileSize: storedAsset.fileSize,
+                    contextMetadata: storedAsset.contextMetadata
                 )
+            } else {
+                organizedAsset = try await measureImportStage(
+                    "organize-existing-asset",
+                    context: storedAssetLogContext(storedAsset),
+                    successSummary: { [self] organizedAsset in
+                        organizedAssetLogSummary(organizedAsset)
+                    }
+                ) {
+                    try await organizeStoredAsset(
+                        storedAsset,
+                        using: purposeFolderContext(for: existingRecord),
+                        embedding: existingRecord.embedding,
+                        currentFolderHint: currentPurposeFolderName(from: existingRecord.assetPath)
+                    )
+                }
             }
             existingRecord.assetPath = organizedAsset.assetPath
             existingRecord.fileName = organizedAsset.fileName
@@ -365,6 +393,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             ) {
                 try await knowledgeStore.update(existingRecord)
             }
+            await syncVisibleShortcut(for: existingRecord, reason: "import-existing")
             CasebaseDebugLogger.log(
                 "import request finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: importStartedAt)) \(storedAssetLogContext(organizedAsset)) recordID=\(existingRecord.id.uuidString) reusedExisting=true"
             )
@@ -480,6 +509,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         ) {
             try await knowledgeStore.save(record)
         }
+        await syncVisibleShortcut(for: record, reason: "import-new")
         CasebaseDebugLogger.log(
             "import request finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: importStartedAt)) \(storedAssetLogContext(organizedAsset)) recordID=\(record.id.uuidString) reusedExisting=false"
         )
@@ -547,6 +577,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             ) {
                 try await knowledgeStore.update(existingRecord)
             }
+            await syncVisibleShortcut(for: existingRecord, reason: "meeting-import-existing")
             CasebaseDebugLogger.log(
                 "meeting import request finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: importStartedAt)) \(storedAssetLogContext(organizedAsset)) recordID=\(existingRecord.id.uuidString) reusedExisting=true"
             )
@@ -616,6 +647,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         ) {
             try await knowledgeStore.save(record)
         }
+        await syncVisibleShortcut(for: record, reason: "meeting-import-new")
         CasebaseDebugLogger.log(
             "meeting import request finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: importStartedAt)) \(storedAssetLogContext(organizedAsset)) recordID=\(record.id.uuidString) reusedExisting=false parseStatus=\(draft.parseStatus.rawValue)"
         )
@@ -781,6 +813,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         ) {
             try await knowledgeStore.update(existingRecord)
         }
+        await syncVisibleShortcut(for: existingRecord, reason: "reanalyze")
         CasebaseDebugLogger.log(
             "reanalyze request finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: reanalysisStartedAt)) \(storedAssetContext) recordID=\(existingRecord.id.uuidString)"
         )
@@ -818,6 +851,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
 
         progress?(ImportProgressUpdate(phase: .storing))
         try await knowledgeStore.update(existingRecord)
+        await syncVisibleShortcut(for: existingRecord, reason: "finalize")
         return existingRecord
     }
 
@@ -826,13 +860,16 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         let records = try await knowledgeStore.recentRecords(limit: legacyAssetOrganizationLimit)
         var reorganizedCount = 0
         var missingAssetCount = 0
+        var shortcutSyncCount = 0
 
         CasebaseDebugLogger.log("legacy asset organization started totalRecords=\(records.count)")
+        await prepareVisibleShortcutRoot(reason: "legacy-startup")
 
         for var record in records {
             let assetURL = await assetVault.url(for: record.assetPath)
             guard FileManager.default.fileExists(atPath: assetURL.path) else {
                 missingAssetCount += 1
+                await removeVisibleShortcut(for: record, reason: "legacy-missing-asset")
                 CasebaseDebugLogger.log(
                     "legacy asset organization skipped missingAsset recordID=\(record.id.uuidString) assetPath=\(quotedLogValue(record.assetPath))"
                 )
@@ -857,6 +894,9 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             )
 
             guard organizedAsset.assetPath != record.assetPath else {
+                if await syncVisibleShortcut(for: record, reason: "legacy-existing") {
+                    shortcutSyncCount += 1
+                }
                 continue
             }
 
@@ -865,13 +905,63 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             record.mimeType = organizedAsset.mimeType
             record.sourceKind = organizedAsset.sourceKind
             try await knowledgeStore.update(record)
+            if await syncVisibleShortcut(for: record, reason: "legacy-reorganized") {
+                shortcutSyncCount += 1
+            }
             reorganizedCount += 1
         }
 
         CasebaseDebugLogger.log(
-            "legacy asset organization finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: migrationStartedAt)) reorganized=\(reorganizedCount) missingAssets=\(missingAssetCount)"
+            "legacy asset organization finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: migrationStartedAt)) reorganized=\(reorganizedCount) missingAssets=\(missingAssetCount) shortcutSynced=\(shortcutSyncCount)"
         )
         return reorganizedCount
+    }
+
+    @discardableResult
+    private func syncVisibleShortcut(for record: ImportRecord, reason: String) async -> Bool {
+        guard let visibleShortcutService else { return false }
+
+        do {
+            let changed = try await visibleShortcutService.syncShortcut(for: record)
+            if changed {
+                CasebaseDebugLogger.log(
+                    "visible shortcut synced reason=\(quotedLogValue(reason)) recordID=\(record.id.uuidString) assetPath=\(quotedLogValue(record.assetPath))"
+                )
+            }
+            return changed
+        } catch {
+            CasebaseDebugLogger.log(
+                "visible shortcut sync failed reason=\(quotedLogValue(reason)) recordID=\(record.id.uuidString) error=\(sanitizedLogValue(String(describing: error)))"
+            )
+            return false
+        }
+    }
+
+    private func removeVisibleShortcut(for record: ImportRecord, reason: String) async {
+        guard let visibleShortcutService else { return }
+
+        do {
+            try await visibleShortcutService.removeShortcut(for: record)
+            CasebaseDebugLogger.log(
+                "visible shortcut removed reason=\(quotedLogValue(reason)) recordID=\(record.id.uuidString)"
+            )
+        } catch {
+            CasebaseDebugLogger.log(
+                "visible shortcut remove failed reason=\(quotedLogValue(reason)) recordID=\(record.id.uuidString) error=\(sanitizedLogValue(String(describing: error)))"
+            )
+        }
+    }
+
+    private func prepareVisibleShortcutRoot(reason: String) async {
+        guard let visibleShortcutService else { return }
+
+        do {
+            try await visibleShortcutService.prepareRootDirectory()
+        } catch {
+            CasebaseDebugLogger.log(
+                "visible shortcut root prepare failed reason=\(quotedLogValue(reason)) error=\(sanitizedLogValue(String(describing: error)))"
+            )
+        }
     }
 
     private func purposeFolderContext(for result: AnalysisResult) -> PurposeFolderContext {
@@ -1504,6 +1594,10 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
     }
 
     private func ensurePayloadWithinSizeLimit(_ payload: ImportPayload) throws {
+        if isFolderPayload(payload) {
+            return
+        }
+
         let payloadSize = try payloadByteCount(payload)
         guard payloadSize <= maximumImportFileBytes else {
             throw CasebaseError.invalidPayload(
@@ -1517,6 +1611,10 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
     }
 
     private func ensureStoredAssetWithinSizeLimit(_ storedAsset: StoredAsset) throws {
+        if storedAsset.sourceKind == .folder {
+            return
+        }
+
         guard storedAsset.fileSize <= maximumImportFileBytes else {
             throw CasebaseError.invalidPayload(
                 CasebasePromptCatalog.errors.importPayloadExceedsSizeLimit(
@@ -1533,12 +1631,27 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         case let .text(textPayload):
             return Int64(textPayload.text.lengthOfBytes(using: .utf8))
         case let .file(filePayload):
+            if isFolderPayload(payload) {
+                return 0
+            }
             if let fileSize = FileMetadataReader.fileSizeBytes(for: filePayload.fileURL) {
                 return fileSize
             }
             let data = try Data(contentsOf: filePayload.fileURL, options: .mappedIfSafe)
             return Int64(data.count)
         }
+    }
+
+    private func isFolderPayload(_ payload: ImportPayload) -> Bool {
+        guard case let .file(filePayload) = payload else {
+            return false
+        }
+
+        if filePayload.sourceKindHint == .folder {
+            return true
+        }
+
+        return FileMetadataReader.isDirectory(filePayload.fileURL)
     }
 
     private func formattedByteCount(_ byteCount: Int64) -> String {
@@ -1615,8 +1728,62 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             tags: tags,
             structuredData: structuredData,
             searchText: searchText,
-            clarificationRequest: nil,
+            clarificationRequest: fallbackClarificationRequest(for: storedAsset.sourceKind),
             needsReview: true
+        )
+    }
+
+    private func fallbackClarificationRequest(for sourceKind: ImportSourceKind) -> ClarificationRequest {
+        let title: String
+        let reason: String
+        let options: [String]
+
+        switch (CasebasePromptCatalog.language, sourceKind) {
+        case (.simplifiedChinese, .image):
+            title = "这张图片以后主要想怎么找回？"
+            reason = "确认使用场景后，图片标题和标签会更准确。"
+            options = ["工作资料", "个人记录", "待稍后确认"]
+        case (.simplifiedChinese, .pdf), (.simplifiedChinese, .text), (.simplifiedChinese, .binary):
+            title = "这份内容后续主要用来做什么？"
+            reason = "确认用途后，系统可以把摘要、标签和检索词补得更准。"
+            options = ["工作复用", "个人备忘", "待稍后确认"]
+        case (.simplifiedChinese, .folder):
+            title = "这个文件夹主要属于哪类资料？"
+            reason = "确认分类后，整个文件夹会更容易在入口目录中找回。"
+            options = ["项目资料", "会议/培训资料", "待稍后确认"]
+        case (.simplifiedChinese, .audio):
+            title = "这段音频后续主要用来做什么？"
+            reason = "确认用途后，系统可以更准确地组织录音资料。"
+            options = ["会议复盘", "访谈记录", "待稍后确认"]
+        case (.english, .image):
+            title = "How do you want to find this image later?"
+            reason = "The usage context helps make the image title and tags more accurate."
+            options = ["Work reference", "Personal note", "Decide later"]
+        case (.english, .pdf), (.english, .text), (.english, .binary):
+            title = "What will this content mainly be used for later?"
+            reason = "Knowing the purpose helps refine the summary, tags, and search terms."
+            options = ["Work reuse", "Personal note", "Decide later"]
+        case (.english, .folder):
+            title = "What kind of material is this folder mainly for?"
+            reason = "Knowing the category makes the folder easier to retrieve from the visible entry directory."
+            options = ["Project files", "Meeting/training files", "Decide later"]
+        case (.english, .audio):
+            title = "What will this audio mainly be used for later?"
+            reason = "Knowing the purpose helps organize the recording more accurately."
+            options = ["Meeting recap", "Interview notes", "Decide later"]
+        }
+
+        return ClarificationRequest(
+            uncertaintySummary: reason,
+            impactExplanation: reason,
+            questions: [
+                ClarificationQuestion(
+                    id: "q1",
+                    title: title,
+                    reason: reason,
+                    suggestedOptions: options
+                )
+            ]
         )
     }
 
@@ -1996,7 +2163,9 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         case let .text(textPayload):
             return "file=\(fileName) sourceKind=\(sourceKind) mime=\(mimeType) textChars=\(textPayload.text.count)"
         case let .file(filePayload):
-            let fileSize = FileMetadataReader.fileSizeBytes(for: filePayload.fileURL) ?? 0
+            let fileSize = isFolderPayload(payload)
+                ? FileMetadataReader.directorySizeBytes(for: filePayload.fileURL)
+                : (FileMetadataReader.fileSizeBytes(for: filePayload.fileURL) ?? 0)
             return "file=\(fileName) sourceKind=\(sourceKind) mime=\(mimeType) bytes=\(fileSize)"
         }
     }

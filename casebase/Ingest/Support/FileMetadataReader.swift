@@ -25,6 +25,10 @@ enum FileMetadataReader {
             metadata["uniformTypeIdentifier"] = utType.identifier
         }
 
+        if isDirectory(fileURL, fileManager: fileManager) {
+            metadata["isDirectory"] = "true"
+        }
+
         if let fileSize = fileSizeBytes(for: fileURL, fileManager: fileManager) {
             metadata["fileSizeBytes"] = String(fileSize)
         }
@@ -51,5 +55,38 @@ enum FileMetadataReader {
             return nil
         }
         return nil
+    }
+
+    static func isDirectory(_ fileURL: URL, fileManager: FileManager = .default) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: fileURL.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    static func directorySizeBytes(for directoryURL: URL, fileManager: FileManager = .default) -> Int64 {
+        guard isDirectory(directoryURL, fileManager: fileManager) else {
+            return fileSizeBytes(for: directoryURL, fileManager: fileManager) ?? 0
+        }
+
+        guard let enumerator = fileManager.enumerator(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileSizeKey],
+            options: []
+        ) else {
+            return 0
+        }
+
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: [
+                .isRegularFileKey,
+                .totalFileAllocatedSizeKey,
+                .fileSizeKey,
+            ]) else {
+                continue
+            }
+            guard values.isRegularFile == true else { continue }
+            total += Int64(values.totalFileAllocatedSize ?? values.fileSize ?? 0)
+        }
+        return total
     }
 }

@@ -53,12 +53,13 @@ enum NotchDropPayloadLoader {
         }
 
         let fileURL = try await provider.loadFileURL()
-        let type = UTType(filenameExtension: fileURL.pathExtension)
+        let isDirectory = FileMetadataReader.isDirectory(fileURL)
+        let type = isDirectory ? UTType.directory : UTType(filenameExtension: fileURL.pathExtension)
         return .file(
             FileImportPayload(
                 fileURL: fileURL,
                 suggestedFileName: fileURL.lastPathComponent,
-                mimeType: type?.preferredMIMEType,
+                mimeType: isDirectory ? "inode/directory" : type?.preferredMIMEType,
                 sourceKindHint: inferSourceKind(from: fileURL, type: type)
             )
         )
@@ -99,7 +100,13 @@ enum NotchDropPayloadLoader {
     }
 
     private static func inferSourceKind(from fileURL: URL, type: UTType?) -> ImportSourceKind {
+        if FileMetadataReader.isDirectory(fileURL) {
+            return .folder
+        }
         if let type {
+            if type.conforms(to: .directory) {
+                return .folder
+            }
             if type.conforms(to: .image) {
                 return .image
             }

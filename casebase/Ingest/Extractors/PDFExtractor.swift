@@ -6,6 +6,7 @@ final class PDFExtractor: Extractor {
 
     private let fileManager: FileManager
     private let previewRenderer: PDFPreviewRenderer
+    private let ocrService: ImageOCRService
     private let minimumMeaningfulTextLength = 80
     private let richTextThreshold = 240
     private let aggressivePreviewFileSizeBytes: Int64 = 8_000_000
@@ -13,10 +14,12 @@ final class PDFExtractor: Extractor {
 
     init(
         fileManager: FileManager = .default,
-        previewRenderer: PDFPreviewRenderer
+        previewRenderer: PDFPreviewRenderer,
+        ocrService: ImageOCRService = ImageOCRService()
     ) {
         self.fileManager = fileManager
         self.previewRenderer = previewRenderer
+        self.ocrService = ocrService
     }
 
     func canExtract(_ payload: ImportPayload) -> Bool {
@@ -44,7 +47,7 @@ final class PDFExtractor: Extractor {
         }
 
         let extractedText = extractText(from: document)
-        let normalizedText = extractedText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var normalizedText = extractedText?.trimmingCharacters(in: .whitespacesAndNewlines)
         let fileSizeBytes = FileMetadataReader.fileSizeBytes(for: filePayload.fileURL, fileManager: fileManager) ?? 0
         let requestedPreviewCount = preferredPreviewCount(
             pageCount: document.pageCount,
@@ -96,9 +99,37 @@ final class PDFExtractor: Extractor {
             )
         }
 
+        if (normalizedText?.count ?? 0) < minimumMeaningfulTextLength {
+            let ocrStartedAt = Date()
+            CasebaseDebugLogger.log(
+                "pdf extractor preview OCR started file=\"\(filePayload.fileURL.lastPathComponent)\" previewCount=\(attachments.filter { $0.kind == .pagePreview }.count)"
+            )
+            let ocrText = attachments
+                .filter { $0.kind == .pagePreview }
+                .compactMap { attachment in
+                    try? ocrService.recognizeText(from: URL(fileURLWithPath: attachment.path))
+                }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n")
+            CasebaseDebugLogger.log(
+                "pdf extractor preview OCR finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: ocrStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" ocrChars=\(ocrText.count)"
+            )
+            metadata["previewOCRCharacterCount"] = String(ocrText.count)
+            if !ocrText.isEmpty {
+                if let currentText = normalizedText, !currentText.isEmpty {
+                    if !currentText.localizedCaseInsensitiveContains(ocrText) {
+                        normalizedText = currentText + "\n\n" + ocrText
+                    }
+                } else {
+                    normalizedText = ocrText
+                }
+            }
+        }
+
         return NormalizedContent(
             sourceKind: .pdf,
-            rawText: normalizedText?.isEmpty == false ? extractedText : nil,
+            rawText: normalizedText?.isEmpty == false ? normalizedText : nil,
             attachments: attachments,
             fallbackMetadata: metadata
         )

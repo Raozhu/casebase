@@ -295,6 +295,8 @@ private struct LibraryTaskPreviewView: View {
             return Color(red: 0.23, green: 0.58, blue: 0.48)
         case .audio:
             return Color(red: 0.62, green: 0.35, blue: 0.78)
+        case .folder:
+            return Color(red: 0.52, green: 0.42, blue: 0.22)
         case .binary:
             return Color(red: 0.40, green: 0.46, blue: 0.60)
         }
@@ -389,6 +391,8 @@ struct LibraryAssetPreviewView: View {
             return Color(red: 0.23, green: 0.58, blue: 0.48)
         case .audio:
             return Color(red: 0.62, green: 0.35, blue: 0.78)
+        case .folder:
+            return Color(red: 0.52, green: 0.42, blue: 0.22)
         case .binary:
             return Color(red: 0.40, green: 0.46, blue: 0.60)
         }

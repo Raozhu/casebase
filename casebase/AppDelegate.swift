@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var startupError: Error?
     private var selectionCaptureController: GlobalSelectionCaptureController?
     private var screenshotCaptureController: GlobalScreenshotCaptureController?
+    private var apiKeyUpdatedObserver: Any?
 
     func applicationDidFinishLaunching(_: Notification) {
         NotificationCenter.default.addObserver(
@@ -15,31 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
         NSApp.setActivationPolicy(.accessory)
-        do {
-            runtime = try CasebaseRuntime.bootstrap()
-            startupError = nil
-            if let runtime {
-                Task {
-                    do {
-                        let reorganizedCount = try await runtime.assetOrganizationService.organizeLegacyAssets()
-                        guard reorganizedCount > 0 else { return }
-                        NotificationCenter.default.post(
-                            name: .casebaseRecordsReorganized,
-                            object: nil,
-                            userInfo: ["reorganizedCount": reorganizedCount]
-                        )
-                    } catch {
-                        CasebaseDebugLogger.log(
-                            "legacy asset organization failed error=\(String(describing: error))"
-                        )
-                    }
-                }
-            }
-        } catch {
-            runtime = nil
-            startupError = error
-        }
+        reloadRuntime()
         rebuildApplicationWindows()
+        installAPIKeyUpdatedObserver()
         selectionCaptureController = GlobalSelectionCaptureController(
             onCapture: { [weak self] capture in
                 self?.routeSelectionCapture(capture)
@@ -66,6 +45,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         for screen in NSScreen.screens {
             windowControllers.append(NotchWindowController(screen: screen, runtime: runtime, startupError: startupError))
+        }
+    }
+
+    @MainActor
+    private func reloadRuntime() {
+        CasebaseAPIKeyStore.shared.reload()
+        do {
+            runtime = try CasebaseRuntime.bootstrap()
+            startupError = nil
+            if let runtime {
+                Task {
+                    do {
+                        let reorganizedCount = try await runtime.assetOrganizationService.organizeLegacyAssets()
+                        guard reorganizedCount > 0 else { return }
+                        NotificationCenter.default.post(
+                            name: .casebaseRecordsReorganized,
+                            object: nil,
+                            userInfo: ["reorganizedCount": reorganizedCount]
+                        )
+                    } catch {
+                        CasebaseDebugLogger.log(
+                            "legacy asset organization failed error=\(String(describing: error))"
+                        )
+                    }
+                }
+            }
+        } catch {
+            runtime = nil
+            startupError = error
+        }
+    }
+
+    private func installAPIKeyUpdatedObserver() {
+        apiKeyUpdatedObserver = NotificationCenter.default.addObserver(
+            forName: .casebaseAPIKeyUpdated,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.reloadRuntime()
+                self.rebuildApplicationWindows()
+            }
         }
     }
 

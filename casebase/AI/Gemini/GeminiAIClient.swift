@@ -62,7 +62,7 @@ private struct GeminiAttributionPayload: Decodable {
     let usedModelSupplement: Bool
 }
 
-final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
+final class GeminiAIClient: AIClient {
     private let executor: GeminiRequestExecutor
     private let analysisModels: [String]
     private let answerModel: String
@@ -73,17 +73,17 @@ final class GeminiAIClient: AIClient, GeminiEmbeddingModeProviding {
         configuration: CasebaseConfiguration,
         session: URLSession? = nil
     ) {
-        let resolvedBaseURL = GeminiRuntimeDefaults.resolvedBaseURL(from: configuration.ai.baseURL)
+        let resolvedBaseURL = GeminiRuntimeDefaults.resolvedBaseURL(from: configuration.ai.googleBaseURL)
         executor = GeminiRequestExecutor(
             baseURL: resolvedBaseURL,
-            apiKey: configuration.ai.apiKey,
+            apiKey: configuration.ai.googleAPIKey ?? "",
             requestTimeout: configuration.ai.requestTimeout,
             proxyURLString: configuration.ai.proxyURLString,
             session: session
         )
-        analysisModels = GeminiRuntimeDefaults.resolvedAnalysisModels(from: configuration.ai.analysisModel)
-        answerModel = GeminiRuntimeDefaults.resolvedAnswerModel(from: configuration.ai.answerModel)
-        embeddingModel = GeminiRuntimeDefaults.resolvedEmbeddingModel(from: configuration.ai.embeddingModel)
+        analysisModels = GeminiRuntimeDefaults.resolvedAnalysisModels(from: configuration.ai.googleAnalysisModel)
+        answerModel = GeminiRuntimeDefaults.resolvedAnswerModel(from: configuration.ai.googleAnswerModel)
+        embeddingModel = GeminiRuntimeDefaults.resolvedEmbeddingModel(from: configuration.ai.googleEmbeddingModel)
     }
 
     func analyze(content: NormalizedContent, thoughtHandler: AIThoughtHandler?) async throws -> AnalysisResult {

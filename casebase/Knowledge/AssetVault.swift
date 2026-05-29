@@ -32,6 +32,20 @@ actor AssetVault {
         configuration.rootDirectory.appendingPathComponent(assetPath, isDirectory: false)
     }
 
+    func assetExists(at assetPath: String) -> Bool {
+        fileManager.fileExists(atPath: url(for: assetPath).path)
+    }
+
+    func discardTemporaryAsset(_ storedAsset: StoredAsset, preservingAssetPath preservedAssetPath: String) throws {
+        guard storedAsset.assetPath != preservedAssetPath else { return }
+
+        let assetURL = url(for: storedAsset.assetPath)
+        guard fileManager.fileExists(atPath: assetURL.path) else { return }
+
+        try fileManager.removeItem(at: assetURL)
+        try removeParentFolderIfEmpty(forAssetAt: assetURL)
+    }
+
     func purposeFolderNames() throws -> [String] {
         try prepareDirectories()
 
@@ -64,10 +78,12 @@ actor AssetVault {
 
         let normalizedFolderName = sanitizedPurposeFolderName(folderName)
         let folderURL = try ensuredPurposeFolderURL(named: normalizedFolderName)
-        let destinationFileName = readableFileName(
-            preferredName: storedAsset.fileName,
-            displayName: preferredDisplayName
-        )
+        let destinationFileName = storedAsset.sourceKind == .folder
+            ? readableFolderName(preferredName: storedAsset.fileName)
+            : readableFileName(
+                preferredName: storedAsset.fileName,
+                displayName: preferredDisplayName
+            )
         let sourceURL = url(for: storedAsset.assetPath)
         let destinationURL = availableDestinationURL(
             forFileName: destinationFileName,
@@ -130,6 +146,10 @@ actor AssetVault {
 
     private func storeFilePayload(_ payload: FileImportPayload) throws -> StoredAsset {
         let sourceURL = payload.fileURL
+        if FileMetadataReader.isDirectory(sourceURL, fileManager: fileManager) {
+            return try storeFolderPayload(payload)
+        }
+
         let data = try Data(contentsOf: sourceURL)
         let assetHash = sha256Hex(for: data)
         let fileName = payload.suggestedFileName ?? sourceURL.lastPathComponent
@@ -148,6 +168,29 @@ actor AssetVault {
             mimeType: payload.mimeType,
             sourceKind: inferSourceKind(from: payload.sourceKindHint, fileName: fileName, mimeType: payload.mimeType),
             fileSize: Int64(data.count),
+            contextMetadata: payload.contextMetadata
+        )
+    }
+
+    private func storeFolderPayload(_ payload: FileImportPayload) throws -> StoredAsset {
+        let sourceURL = payload.fileURL
+        let fileName = payload.suggestedFileName ?? sourceURL.lastPathComponent
+        let assetHash = try folderHash(for: sourceURL, displayName: fileName)
+        let destinationFileName = hashedFolderName(hash: assetHash, preferredName: fileName)
+        let relativePath = "assets/\(destinationFileName)"
+        let destinationURL = configuration.rootDirectory.appendingPathComponent(relativePath, isDirectory: true)
+
+        if !fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        }
+
+        return StoredAsset(
+            assetPath: relativePath,
+            assetHash: assetHash,
+            fileName: fileName,
+            mimeType: payload.mimeType ?? "inode/directory",
+            sourceKind: .folder,
+            fileSize: FileMetadataReader.directorySizeBytes(for: sourceURL, fileManager: fileManager),
             contextMetadata: payload.contextMetadata
         )
     }
@@ -190,6 +233,10 @@ actor AssetVault {
             return hint
         }
 
+        if mimeType?.lowercased() == "inode/directory" {
+            return .folder
+        }
+
         let loweredMime = mimeType?.lowercased() ?? ""
         if loweredMime.hasPrefix("image/") {
             return .image
@@ -226,6 +273,12 @@ actor AssetVault {
         return "\(hash).\(pathExtension.lowercased())"
     }
 
+    private func hashedFolderName(hash: String, preferredName: String) -> String {
+        let folderName = sanitizedReadableBaseName(preferredName)
+            ?? (CasebasePromptCatalog.language == .simplifiedChinese ? "资料文件夹" : "Folder")
+        return "\(hash)-\(folderName)"
+    }
+
     private func readableFileName(
         preferredName: String,
         displayName: String?
@@ -242,6 +295,11 @@ actor AssetVault {
             return baseName
         }
         return "\(baseName).\(pathExtension)"
+    }
+
+    private func readableFolderName(preferredName: String) -> String {
+        sanitizedReadableBaseName(preferredName)
+            ?? (CasebasePromptCatalog.language == .simplifiedChinese ? "资料文件夹" : "Folder")
     }
 
     private func sanitizedReadableBaseName(_ rawValue: String?) -> String? {
@@ -331,5 +389,74 @@ actor AssetVault {
 
     private func sha256Hex(for data: Data) -> String {
         SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    private func folderHash(for folderURL: URL, displayName: String) throws -> String {
+        var hasher = SHA256()
+        updateHash(&hasher, string: "casebase-folder-v1\n")
+        updateHash(&hasher, string: "name:\(displayName)\n")
+
+        let entries = try folderHashEntries(for: folderURL)
+        for entryURL in entries {
+            let relativePath = relativePath(from: folderURL, to: entryURL)
+            let values = try entryURL.resourceValues(forKeys: [
+                .isDirectoryKey,
+                .isRegularFileKey,
+                .isSymbolicLinkKey,
+            ])
+
+            if values.isDirectory == true {
+                updateHash(&hasher, string: "dir:\(relativePath)\n")
+            } else if values.isSymbolicLink == true {
+                let destination = (try? fileManager.destinationOfSymbolicLink(atPath: entryURL.path)) ?? ""
+                updateHash(&hasher, string: "symlink:\(relativePath):\(destination)\n")
+            } else if values.isRegularFile == true {
+                updateHash(&hasher, string: "file:\(relativePath)\n")
+                let data = try Data(contentsOf: entryURL, options: .mappedIfSafe)
+                hasher.update(data: data)
+                updateHash(&hasher, string: "\n")
+            } else {
+                updateHash(&hasher, string: "other:\(relativePath)\n")
+            }
+        }
+
+        return hasher.finalize().compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    private func folderHashEntries(for folderURL: URL) throws -> [URL] {
+        guard let enumerator = fileManager.enumerator(
+            at: folderURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
+            options: []
+        ) else {
+            return []
+        }
+
+        var entries: [URL] = []
+        for case let url as URL in enumerator {
+            entries.append(url)
+        }
+
+        return entries.sorted {
+            relativePath(from: folderURL, to: $0) < relativePath(from: folderURL, to: $1)
+        }
+    }
+
+    private func updateHash(_ hasher: inout SHA256, string: String) {
+        hasher.update(data: Data(string.utf8))
+    }
+
+    private func relativePath(from rootURL: URL, to childURL: URL) -> String {
+        let rootPath = rootURL.standardizedFileURL.path
+        let childPath = childURL.standardizedFileURL.path
+        guard childPath.hasPrefix(rootPath) else {
+            return childURL.lastPathComponent
+        }
+
+        var relative = String(childPath.dropFirst(rootPath.count))
+        while relative.hasPrefix("/") {
+            relative.removeFirst()
+        }
+        return relative
     }
 }

@@ -118,6 +118,7 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var captureSinkProgress: CGFloat = 0
     @Published private(set) var selectionCaptureAuthorized = true
     @Published private(set) var screenshotCaptureAuthorized = true
+    @Published private(set) var apiKeyConfigured = CasebaseAPIKeyStore.shared.isConfigured
     @Published private(set) var isDismissed = false
     @Published private(set) var isClearingStoredData = false
     @Published private(set) var selectedFailedTaskID: UUID?
@@ -174,6 +175,7 @@ final class NotchViewModel: ObservableObject {
     private var transientResultRailVisible = false
     private var measuredExpandedContentHeights: [CasebaseSurfaceState: CGFloat] = [:]
     private var meetingRecorderCancellables: Set<AnyCancellable> = []
+    private var apiKeyStoreCancellables: Set<AnyCancellable> = []
     private let searchConversationStoreFileName = "explore_conversations.json"
     private static let chineseLibraryTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -228,6 +230,7 @@ final class NotchViewModel: ObservableObject {
         }
 
         refreshShortcutPermissions()
+        bindAPIKeyStore()
         bindMeetingRecorder()
         loadSearchConversations()
     }
@@ -268,9 +271,9 @@ final class NotchViewModel: ObservableObject {
                 width: hoverExpandedPanelSize.width,
                 height: adaptiveExpandedHeight(
                     for: .hoverActions,
-                    minimum: selectionCaptureAuthorized
-                        ? hoverExpandedPanelSize.height
-                        : hoverExpandedPanelUnauthorizedMinHeight
+                    minimum: hasHoverActionPrompt
+                        ? hoverExpandedPanelUnauthorizedMinHeight
+                        : hoverExpandedPanelSize.height
                 )
             )
         case .meeting:
@@ -285,6 +288,8 @@ final class NotchViewModel: ObservableObject {
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: .libraryDetail, minimum: 300))
         case .settings:
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: .settings, minimum: 320))
+        case .settingsAPIKeys:
+            return CGSize(width: 520, height: adaptiveExpandedHeight(for: .settingsAPIKeys, minimum: 360))
         case .settingsDataResetConfirmation:
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: .settingsDataResetConfirmation, minimum: 280))
         case .dropTarget:
@@ -1164,6 +1169,17 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    private func bindAPIKeyStore() {
+        let store = CasebaseAPIKeyStore.shared
+        apiKeyConfigured = store.isConfigured
+        store.$isConfigured
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isConfigured in
+                self?.apiKeyConfigured = isConfigured
+            }
+            .store(in: &apiKeyStoreCancellables)
+    }
+
     private func bindMeetingRecorder() {
         guard let meetingRecorder else { return }
 
@@ -1306,7 +1322,7 @@ final class NotchViewModel: ObservableObject {
                 canClearData: canOpenDataResetConfirmation
             )
         )
-        guard surfaceState != .settings, surfaceState != .settingsDataResetConfirmation else { return }
+        guard surfaceState != .settings, surfaceState != .settingsAPIKeys, surfaceState != .settingsDataResetConfirmation else { return }
         isDismissed = false
         restoredSurfaceStateBeforeSettings = surfaceState
         restoredStatusBeforeSettings = status
@@ -1773,11 +1789,29 @@ final class NotchViewModel: ObservableObject {
     }
 
     func closeSettings() {
-        guard surfaceState == .settings || surfaceState == .settingsDataResetConfirmation else { return }
+        guard surfaceState == .settings || surfaceState == .settingsAPIKeys || surfaceState == .settingsDataResetConfirmation else { return }
         isDismissed = false
         surfaceState = restoredSurfaceStateBeforeSettings
         status = restoredStatusBeforeSettings
         isPinnedExpanded = restoredPinnedStateBeforeSettings
+    }
+
+    func openAPIKeySettings() {
+        measuredExpandedContentHeights[.settingsAPIKeys] = max(
+            measuredExpandedContentHeights[.settingsAPIKeys] ?? 0,
+            NotchAPIKeySettingsView.measuredContentHeight()
+        )
+        isDismissed = false
+        isPinnedExpanded = true
+        surfaceState = .settingsAPIKeys
+        status = .expanded
+    }
+
+    func closeAPIKeySettings() {
+        guard surfaceState == .settingsAPIKeys else { return }
+        isDismissed = false
+        surfaceState = .settings
+        status = .expanded
     }
 
     func openDataResetConfirmation() {
@@ -2293,6 +2327,8 @@ final class NotchViewModel: ObservableObject {
             return localizedPreviewLabel(chinese: "文本", english: "Text")
         case .audio:
             return localizedPreviewLabel(chinese: "音频", english: "Audio")
+        case .folder:
+            return localizedPreviewLabel(chinese: "文件夹", english: "Folder")
         case .binary:
             return localizedPreviewLabel(chinese: "文件", english: "File")
         }
@@ -2310,6 +2346,8 @@ final class NotchViewModel: ObservableObject {
             return localizedPreviewLabel(chinese: "音频", english: "Audio")
         case .video:
             return localizedPreviewLabel(chinese: "视频", english: "Video")
+        case .folder:
+            return localizedPreviewLabel(chinese: "文件夹", english: "Folder")
         case .file:
             return localizedPreviewLabel(chinese: "文件", english: "File")
         }
@@ -2331,6 +2369,8 @@ final class NotchViewModel: ObservableObject {
             return localizedPreviewLabel(chinese: "音频内容", english: "Audio content")
         case .video:
             return localizedPreviewLabel(chinese: "视频内容", english: "Video content")
+        case .folder:
+            return localizedPreviewLabel(chinese: "文件夹内容", english: "Folder contents")
         case .file:
             return localizedPreviewLabel(chinese: "通用文件", english: "General file")
         }
@@ -2350,6 +2390,8 @@ final class NotchViewModel: ObservableObject {
             return "text.alignleft"
         case .audio:
             return "waveform"
+        case .folder:
+            return "folder"
         case .binary:
             return "doc"
         }
@@ -2367,6 +2409,8 @@ final class NotchViewModel: ObservableObject {
             return "waveform"
         case .video:
             return "film"
+        case .folder:
+            return "folder"
         case .file:
             return "doc"
         }
@@ -3146,6 +3190,7 @@ final class NotchViewModel: ObservableObject {
         case text
         case audio
         case video
+        case folder
         case file
     }
 
@@ -3161,6 +3206,9 @@ final class NotchViewModel: ObservableObject {
         }
         if record.sourceKind == .audio {
             return .audio
+        }
+        if record.sourceKind == .folder {
+            return .folder
         }
 
         let loweredMime = record.mimeType?.lowercased() ?? ""
@@ -3597,9 +3645,11 @@ final class NotchViewModel: ObservableObject {
     private func preferredAdaptiveExpandedHeight(for state: CasebaseSurfaceState, minimum: CGFloat) -> CGFloat {
         switch state {
         case .hoverActions:
-            return selectionCaptureAuthorized
-                ? hoverExpandedPanelSize.height
-                : hoverExpandedPanelUnauthorizedMinHeight
+            return hasHoverActionPrompt
+                ? hoverExpandedPanelUnauthorizedMinHeight
+                : hoverExpandedPanelSize.height
+        case .settingsAPIKeys:
+            return NotchAPIKeySettingsView.measuredContentHeight()
         case .meeting:
             return meetingPreferredPanelHeight
         case .library:
@@ -3615,6 +3665,10 @@ final class NotchViewModel: ObservableObject {
         default:
             return minimum
         }
+    }
+
+    private var hasHoverActionPrompt: Bool {
+        !selectionCaptureAuthorized || !screenshotCaptureAuthorized || !apiKeyConfigured
     }
 
     private func maximumAdaptiveExpandedHeight(for state: CasebaseSurfaceState) -> CGFloat {

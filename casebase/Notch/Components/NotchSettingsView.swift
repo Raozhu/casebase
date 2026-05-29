@@ -4,6 +4,7 @@ import SwiftUI
 struct NotchSettingsView: View {
     @ObservedObject private var languageController = CasebaseLanguageController.shared
     @ObservedObject private var hotKeyStore = CasebaseHotKeyStore.shared
+    @ObservedObject private var apiKeyStore = CasebaseAPIKeyStore.shared
     @State private var recordingAction: CasebaseHotKeyAction?
     @State private var shortcutErrorMessage: String?
     @State private var keyMonitor: Any?
@@ -15,6 +16,7 @@ struct NotchSettingsView: View {
     let showsScreenRecordingAccess: Bool
     let onOpenScreenRecordingAccess: () -> Void
     let onOpenClearData: () -> Void
+    let onOpenAPIKeys: () -> Void
     let onRestart: () -> Void
     let onQuit: () -> Void
     let canClearData: Bool
@@ -28,6 +30,7 @@ struct NotchSettingsView: View {
         showsScreenRecordingAccess: Bool,
         onOpenScreenRecordingAccess: @escaping () -> Void,
         onOpenClearData: @escaping () -> Void,
+        onOpenAPIKeys: @escaping () -> Void,
         onRestart: @escaping () -> Void,
         onQuit: @escaping () -> Void,
         canClearData: Bool
@@ -40,6 +43,7 @@ struct NotchSettingsView: View {
         self.showsScreenRecordingAccess = showsScreenRecordingAccess
         self.onOpenScreenRecordingAccess = onOpenScreenRecordingAccess
         self.onOpenClearData = onOpenClearData
+        self.onOpenAPIKeys = onOpenAPIKeys
         self.onRestart = onRestart
         self.onQuit = onQuit
         self.canClearData = canClearData
@@ -59,6 +63,8 @@ struct NotchSettingsView: View {
             }
 
             shortcutsSection
+
+            modelAccessSection
 
             if !isMeasuring {
                 Spacer(minLength: 0)
@@ -124,6 +130,26 @@ struct NotchSettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(Color.red.opacity(0.9))
             }
+        }
+    }
+
+    private var modelAccessSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(CasebasePromptCatalog.ui.settingsAPIKeyLabel)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.white.opacity(0.46))
+
+            Button(action: onOpenAPIKeys) {
+                SettingsNavigationRow(
+                    icon: apiKeyStore.isConfigured ? .check : .warning,
+                    tone: apiKeyStore.isConfigured ? .success : .warning,
+                    title: CasebasePromptCatalog.ui.settingsAPIKeyLabel,
+                    detail: apiKeyStore.isConfigured
+                        ? CasebasePromptCatalog.ui.settingsAPIKeyStatusConfigured
+                        : CasebasePromptCatalog.ui.settingsAPIKeyStatusMissing
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -223,6 +249,7 @@ struct NotchSettingsView: View {
             showsScreenRecordingAccess: showsScreenRecordingAccess,
             onOpenScreenRecordingAccess: {},
             onOpenClearData: {},
+            onOpenAPIKeys: {},
             onRestart: {},
             onQuit: {},
             canClearData: canClearData
@@ -232,6 +259,49 @@ struct NotchSettingsView: View {
 
         let hostingView = NSHostingView(rootView: rootView)
         return ceil(hostingView.fittingSize.height + 40)
+    }
+}
+
+private struct SettingsNavigationRow: View {
+    let icon: NotchPixelIcon
+    let tone: NotchPixelTone
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            NotchPixelDisplayIcon(icon: icon, tone: tone, size: 16, glowOpacity: 0.12)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.82))
+                    .lineLimit(1)
+
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.white.opacity(0.54))
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 12)
+
+            NotchPixelIconView(
+                icon: .chevronRight,
+                color: Color.white.opacity(0.48),
+                size: 10
+            )
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.035))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        }
     }
 }
 

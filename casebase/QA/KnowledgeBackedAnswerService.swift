@@ -1,6 +1,6 @@
 import Foundation
 
-protocol GeminiEmbeddingModeProviding {
+protocol QueryEmbeddingProviding {
     func embedQuery(_ text: String) async throws -> [Float]
 }
 
@@ -38,10 +38,17 @@ final class KnowledgeBackedAnswerService: AnswerService {
         }
 
         let queryEmbedding: [Float]
-        if let queryEmbeddingClient = aiClient as? GeminiEmbeddingModeProviding {
-            queryEmbedding = try await queryEmbeddingClient.embedQuery(trimmedQuestion)
-        } else {
-            queryEmbedding = try await aiClient.embed(text: trimmedQuestion)
+        do {
+            if let queryEmbeddingClient = aiClient as? QueryEmbeddingProviding {
+                queryEmbedding = try await queryEmbeddingClient.embedQuery(trimmedQuestion)
+            } else {
+                queryEmbedding = try await aiClient.embed(text: trimmedQuestion)
+            }
+        } catch {
+            CasebaseDebugLogger.log(
+                "answer embedding failed fallback=keyword error=\(String(describing: error))"
+            )
+            queryEmbedding = []
         }
 
         let resultLimit = limit > 0 ? limit : defaultLimit

@@ -618,6 +618,6 @@ private enum MessageFraming {
 
 private extension ImportSourceKind {
     static var allCases: [ImportSourceKind] {
-        [.image, .text, .pdf, .audio, .binary]
+        [.image, .text, .pdf, .audio, .folder, .binary]
     }
 }

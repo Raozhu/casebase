@@ -9,6 +9,8 @@ struct NotchHoverActionsView: View {
     let onAuthorizeSelectionCapture: () -> Void
     let showsScreenRecordingPrompt: Bool
     let onAuthorizeScreenRecording: () -> Void
+    let showsAPIKeyPrompt: Bool
+    let onOpenAPIKeySettings: () -> Void
     let isMeasuring: Bool
 
     @ViewBuilder
@@ -31,6 +33,16 @@ struct NotchHoverActionsView: View {
                     buttonTitle: CasebasePromptCatalog.ui.hoverActionScreenRecordingButton,
                     icon: .warning,
                     action: onAuthorizeScreenRecording
+                )
+            }
+
+            if showsAPIKeyPrompt {
+                permissionPrompt(
+                    title: CasebasePromptCatalog.ui.hoverActionAPIKeyTitle,
+                    detail: CasebasePromptCatalog.ui.hoverActionAPIKeyDetail,
+                    buttonTitle: CasebasePromptCatalog.ui.hoverActionAPIKeyButton,
+                    icon: .warning,
+                    action: onOpenAPIKeySettings
                 )
             }
 

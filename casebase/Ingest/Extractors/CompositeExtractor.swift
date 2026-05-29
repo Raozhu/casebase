@@ -6,6 +6,7 @@ final class CompositeExtractor: Extractor {
         .text,
         .pdf,
         .audio,
+        .folder,
         .binary
     ]
 
@@ -13,6 +14,7 @@ final class CompositeExtractor: Extractor {
     private let imageExtractor: ImageExtractor
     private let pdfExtractor: PDFExtractor
     private let audioExtractor: AudioExtractor
+    private let folderExtractor: FolderExtractor
     private let officeExtractor: OfficeExtractor
     private let fallbackExtractor: FallbackExtractor
 
@@ -39,6 +41,7 @@ final class CompositeExtractor: Extractor {
             transcriber: transcriber,
             session: session
         )
+        folderExtractor = FolderExtractor(fileManager: fileManager)
         officeExtractor = OfficeExtractor(
             fileManager: fileManager,
             previewRenderer: quickLookPreviewRenderer
@@ -80,11 +83,14 @@ final class CompositeExtractor: Extractor {
     }
 
     private func extractorForPayload(_ payload: ImportPayload) -> Extractor {
+        let resolution = FileTypeResolver.resolve(payload)
+        if resolution.sourceKind == .folder {
+            return folderExtractor
+        }
+
         if officeExtractor.canExtract(payload) {
             return officeExtractor
         }
-
-        let resolution = FileTypeResolver.resolve(payload)
 
         switch resolution.sourceKind {
         case .text:
@@ -95,6 +101,8 @@ final class CompositeExtractor: Extractor {
             return pdfExtractor
         case .audio:
             return audioExtractor
+        case .folder:
+            return folderExtractor
         case .binary, .none:
             return fallbackExtractor
         }
@@ -105,7 +113,9 @@ final class CompositeExtractor: Extractor {
         case let .text(textPayload):
             return "file=\"\(payload.displayName)\" sourceKind=text textChars=\(textPayload.text.count)"
         case let .file(filePayload):
-            let fileSize = FileMetadataReader.fileSizeBytes(for: filePayload.fileURL) ?? 0
+            let fileSize = FileMetadataReader.isDirectory(filePayload.fileURL)
+                ? FileMetadataReader.directorySizeBytes(for: filePayload.fileURL)
+                : (FileMetadataReader.fileSizeBytes(for: filePayload.fileURL) ?? 0)
             return "file=\"\(payload.displayName)\" sourceKind=\(payload.sourceKindHint?.rawValue ?? "unknown") path=\"\(filePayload.fileURL.lastPathComponent)\" bytes=\(fileSize)"
         }
     }

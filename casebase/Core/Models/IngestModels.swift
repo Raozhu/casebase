@@ -6,6 +6,7 @@ enum ImportSourceKind: String, Codable, Hashable {
     case text
     case pdf
     case audio
+    case folder
     case binary
 }
 

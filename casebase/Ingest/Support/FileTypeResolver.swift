@@ -19,6 +19,15 @@ enum FileTypeResolver {
                 fileExtension: nil
             )
         case let .file(filePayload):
+            if isDirectory(filePayload.fileURL) {
+                return Resolution(
+                    sourceKind: .folder,
+                    mimeType: normalizedMimeType(filePayload.mimeType) ?? "inode/directory",
+                    utType: .directory,
+                    fileExtension: nil
+                )
+            }
+
             let fileExtension = normalizedFileExtension(for: filePayload.fileURL)
             let preferredMimeType = normalizedMimeType(filePayload.mimeType)
             let preferredUTType = preferredMimeType.flatMap { UTType(mimeType: $0) }
@@ -91,7 +100,14 @@ enum FileTypeResolver {
         return fileExtension.isEmpty ? nil : fileExtension
     }
 
+    private static func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
     private static func sourceKind(for utType: UTType) -> ImportSourceKind? {
+        if utType.conforms(to: .directory) {
+            return .folder
+        }
         if utType.conforms(to: .image) {
             return .image
         }
@@ -108,6 +124,9 @@ enum FileTypeResolver {
     }
 
     private static func sourceKind(forMimeType mimeType: String) -> ImportSourceKind? {
+        if mimeType == "inode/directory" {
+            return .folder
+        }
         if mimeType.hasPrefix("image/") {
             return .image
         }

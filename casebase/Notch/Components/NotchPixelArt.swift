@@ -815,6 +815,8 @@ func notchPixelIcon(for sourceKind: ImportSourceKind) -> NotchPixelIcon {
         return .text
     case .audio:
         return .audio
+    case .folder:
+        return .folder
     case .binary:
         return .file
     }
@@ -830,6 +832,8 @@ func notchPixelTone(for sourceKind: ImportSourceKind) -> NotchPixelTone {
         return .success
     case .audio:
         return .warning
+    case .folder:
+        return .neutral
     case .binary:
         return .neutral
     }
@@ -901,6 +905,8 @@ func notchLibraryInfoTone(for sourceKind: ImportSourceKind) -> LibraryInfoPillTo
         return .success
     case .audio:
         return .warning
+    case .folder:
+        return .neutral
     case .binary:
         return .neutral
     }

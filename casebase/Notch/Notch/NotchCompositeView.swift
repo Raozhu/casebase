@@ -75,6 +75,8 @@ struct NotchCompositeView: View {
                 onAuthorizeSelectionCapture: viewModel.openSelectionCaptureAccessibilitySettings,
                 showsScreenRecordingPrompt: !viewModel.screenshotCaptureAuthorized,
                 onAuthorizeScreenRecording: viewModel.openScreenRecordingSettings,
+                showsAPIKeyPrompt: !viewModel.apiKeyConfigured,
+                onOpenAPIKeySettings: viewModel.openSettings,
                 isMeasuring: forMeasurement
             )
         case .meeting:
@@ -117,9 +119,15 @@ struct NotchCompositeView: View {
                 showsScreenRecordingAccess: !viewModel.screenshotCaptureAuthorized,
                 onOpenScreenRecordingAccess: viewModel.openScreenRecordingSettings,
                 onOpenClearData: viewModel.openDataResetConfirmation,
+                onOpenAPIKeys: viewModel.openAPIKeySettings,
                 onRestart: viewModel.restartApplication,
                 onQuit: viewModel.quitApplication,
                 canClearData: viewModel.canOpenDataResetConfirmation
+            )
+        case .settingsAPIKeys:
+            NotchAPIKeySettingsView(
+                isMeasuring: forMeasurement,
+                onBack: viewModel.closeAPIKeySettings
             )
         case .settingsDataResetConfirmation:
             NotchSettingsDataResetConfirmationView(
@@ -172,7 +180,7 @@ struct NotchCompositeView: View {
 
     private var showsChromeSettingsButton: Bool {
         switch viewModel.surfaceState {
-        case .idle, .hoverActions, .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .settings, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .savedPreview, .search:
+        case .idle, .hoverActions, .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .settings, .settingsAPIKeys, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .savedPreview, .search:
             return false
         case .ingesting, .answering, .answerReady, .error:
             return true

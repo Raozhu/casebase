@@ -8,5 +8,7 @@
     <string>ai.casebase.app</string>
     <key>CFBundleName</key>
     <string>casebase</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Casebase needs microphone access to record and transcribe meeting audio.</string>
 </dict>
 </plist>

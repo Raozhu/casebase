@@ -7,13 +7,16 @@ final class ImageExtractor: Extractor {
 
     private let fileManager: FileManager
     private let previewWriter: TemporaryPreviewWriter
+    private let ocrService: ImageOCRService
 
     init(
         fileManager: FileManager = .default,
-        previewWriter: TemporaryPreviewWriter
+        previewWriter: TemporaryPreviewWriter,
+        ocrService: ImageOCRService = ImageOCRService()
     ) {
         self.fileManager = fileManager
         self.previewWriter = previewWriter
+        self.ocrService = ocrService
     }
 
     func canExtract(_ payload: ImportPayload) -> Bool {
@@ -69,15 +72,26 @@ final class ImageExtractor: Extractor {
         metadata["aiPreviewPixelWidth"] = String(preview.pixelWidth)
         metadata["aiPreviewPixelHeight"] = String(preview.pixelHeight)
         metadata["aiPreviewByteCount"] = String(preview.byteCount)
+        let previewURL = preview.fileURL
+        let ocrStartedAt = Date()
+        CasebaseDebugLogger.log(
+            "image extractor preview OCR started file=\"\(filePayload.fileURL.lastPathComponent)\""
+        )
+        let previewOCR = try? ocrService.recognizeText(from: previewURL)
+        let normalizedOCR = previewOCR?.trimmingCharacters(in: .whitespacesAndNewlines)
+        CasebaseDebugLogger.log(
+            "image extractor preview OCR finished elapsedMs=\(CasebaseDebugLogger.elapsedMilliseconds(since: ocrStartedAt)) file=\"\(filePayload.fileURL.lastPathComponent)\" ocrChars=\(normalizedOCR?.count ?? 0)"
+        )
+        metadata["localOCRCharacterCount"] = String(normalizedOCR?.count ?? 0)
 
         return NormalizedContent(
             sourceKind: .image,
-            rawText: nil,
+            rawText: normalizedOCR?.isEmpty == false ? normalizedOCR : nil,
             attachments: [
                 originalAttachment,
                 NormalizedAttachment(
                     kind: .imagePreview,
-                    path: preview.fileURL.path,
+                    path: previewURL.path,
                     mimeType: "image/jpeg"
                 )
             ],
