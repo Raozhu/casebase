@@ -492,6 +492,212 @@ actor LocalKnowledgeStore: KnowledgeStore {
         }
     }
 
+    func listTodos(
+        filters: TodoFilters = TodoFilters(),
+        limit: Int = TodoPaging.defaultLimit,
+        offset: Int = 0
+    ) async throws -> TodoPage {
+        let normalizedLimit = TodoPaging.normalizedLimit(limit)
+        let normalizedOffset = TodoPaging.normalizedOffset(offset)
+        let normalizedQuery = filters.query?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var clauses: [String] = []
+        if let normalizedQuery, !normalizedQuery.isEmpty {
+            clauses.append("(title LIKE ? OR detail LIKE ?)")
+        }
+        if filters.quadrant != nil {
+            clauses.append("quadrant = ?")
+        }
+        if filters.isCompleted != nil {
+            clauses.append("is_completed = ?")
+        }
+        if filters.dueBefore != nil {
+            clauses.append("due_at IS NOT NULL AND due_at <= ?")
+        }
+        if filters.dueAfter != nil {
+            clauses.append("due_at IS NOT NULL AND due_at >= ?")
+        }
+
+        let whereSQL = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
+        let statement = try database.prepare("""
+            SELECT
+                id,
+                title,
+                detail,
+                due_at,
+                quadrant,
+                is_completed,
+                created_at,
+                updated_at,
+                completed_at,
+                source_refs_json,
+                source_reason,
+                execution_result,
+                origin,
+                last_progress_at,
+                deferred_until,
+                parent_todo_id
+            FROM todos
+            \(whereSQL)
+            ORDER BY
+                is_completed ASC,
+                CASE quadrant
+                    WHEN 'important_urgent' THEN 1
+                    WHEN 'important_not_urgent' THEN 2
+                    WHEN 'urgent_not_important' THEN 3
+                    ELSE 4
+                END ASC,
+                CASE WHEN due_at IS NULL THEN 1 ELSE 0 END ASC,
+                due_at ASC,
+                updated_at DESC
+            LIMIT ? OFFSET ?;
+            """)
+        defer { database.finalize(statement) }
+
+        var index: Int32 = 1
+        if let normalizedQuery, !normalizedQuery.isEmpty {
+            let pattern = "%\(normalizedQuery)%"
+            try database.bind(pattern, at: index, in: statement)
+            index += 1
+            try database.bind(pattern, at: index, in: statement)
+            index += 1
+        }
+        if let quadrant = filters.quadrant {
+            try database.bind(quadrant.rawValue, at: index, in: statement)
+            index += 1
+        }
+        if let isCompleted = filters.isCompleted {
+            try database.bind(isCompleted ? 1 : 0, at: index, in: statement)
+            index += 1
+        }
+        if let dueBefore = filters.dueBefore {
+            try database.bind(dueBefore.timeIntervalSince1970, at: index, in: statement)
+            index += 1
+        }
+        if let dueAfter = filters.dueAfter {
+            try database.bind(dueAfter.timeIntervalSince1970, at: index, in: statement)
+            index += 1
+        }
+        try database.bind(normalizedLimit + 1, at: index, in: statement)
+        index += 1
+        try database.bind(normalizedOffset, at: index, in: statement)
+
+        var todos: [TodoItem] = []
+        while try database.step(statement) == SQLITE_ROW {
+            todos.append(try decodeTodo(from: statement))
+        }
+
+        let hasMore = todos.count > normalizedLimit
+        if hasMore {
+            todos = Array(todos.prefix(normalizedLimit))
+        }
+
+        return TodoPage(
+            items: todos,
+            limit: normalizedLimit,
+            offset: normalizedOffset,
+            hasMore: hasMore
+        )
+    }
+
+    func fetchTodo(id: UUID) async throws -> TodoItem? {
+        let statement = try database.prepare("""
+            SELECT
+                id,
+                title,
+                detail,
+                due_at,
+                quadrant,
+                is_completed,
+                created_at,
+                updated_at,
+                completed_at,
+                source_refs_json,
+                source_reason,
+                execution_result,
+                origin,
+                last_progress_at,
+                deferred_until,
+                parent_todo_id
+            FROM todos
+            WHERE id = ?
+            LIMIT 1;
+            """)
+        defer { database.finalize(statement) }
+
+        try database.bind(id, at: 1, in: statement)
+        guard try database.step(statement) == SQLITE_ROW else {
+            return nil
+        }
+        return try decodeTodo(from: statement)
+    }
+
+    func saveTodo(_ todo: TodoItem) async throws {
+        let statement = try database.prepare("""
+            INSERT INTO todos (
+                id,
+                title,
+                detail,
+                due_at,
+                quadrant,
+                is_completed,
+                created_at,
+                updated_at,
+                completed_at,
+                source_refs_json,
+                source_reason,
+                execution_result,
+                origin,
+                last_progress_at,
+                deferred_until,
+                parent_todo_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                detail = excluded.detail,
+                due_at = excluded.due_at,
+                quadrant = excluded.quadrant,
+                is_completed = excluded.is_completed,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                completed_at = excluded.completed_at,
+                source_refs_json = excluded.source_refs_json,
+                source_reason = excluded.source_reason,
+                execution_result = excluded.execution_result,
+                origin = excluded.origin,
+                last_progress_at = excluded.last_progress_at,
+                deferred_until = excluded.deferred_until,
+                parent_todo_id = excluded.parent_todo_id;
+            """)
+        defer { database.finalize(statement) }
+
+        try database.bind(todo.id, at: 1, in: statement)
+        try database.bind(todo.title, at: 2, in: statement)
+        try database.bind(todo.detail, at: 3, in: statement)
+        try database.bind(todo.dueAt?.timeIntervalSince1970, at: 4, in: statement)
+        try database.bind(todo.quadrant.rawValue, at: 5, in: statement)
+        try database.bind(todo.isCompleted ? 1 : 0, at: 6, in: statement)
+        try database.bind(todo.createdAt.timeIntervalSince1970, at: 7, in: statement)
+        try database.bind(todo.updatedAt.timeIntervalSince1970, at: 8, in: statement)
+        try database.bind(todo.completedAt?.timeIntervalSince1970, at: 9, in: statement)
+        try database.bind(try encodeJSON(todo.sourceReferences), at: 10, in: statement)
+        try database.bind(todo.sourceReason, at: 11, in: statement)
+        try database.bind(todo.executionResult, at: 12, in: statement)
+        try database.bind(todo.origin.rawValue, at: 13, in: statement)
+        try database.bind(todo.lastProgressAt.timeIntervalSince1970, at: 14, in: statement)
+        try database.bind(todo.deferredUntil?.timeIntervalSince1970, at: 15, in: statement)
+        try database.bind(todo.parentTodoID?.uuidString, at: 16, in: statement)
+        _ = try database.step(statement)
+    }
+
+    func deleteTodo(id: UUID) async throws {
+        let statement = try database.prepare("DELETE FROM todos WHERE id = ?;")
+        defer { database.finalize(statement) }
+        try database.bind(id, at: 1, in: statement)
+        _ = try database.step(statement)
+    }
+
     private static func migrate(database: SQLiteDatabase) throws {
         try database.execute("""
             CREATE TABLE IF NOT EXISTS records (
@@ -539,6 +745,37 @@ actor LocalKnowledgeStore: KnowledgeStore {
                 search_text,
                 tags
             );
+            """)
+
+        try database.execute("""
+            CREATE TABLE IF NOT EXISTS todos (
+                id TEXT PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                due_at REAL,
+                quadrant TEXT NOT NULL,
+                is_completed INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                completed_at REAL,
+                source_refs_json TEXT NOT NULL DEFAULT '[]',
+                source_reason TEXT NOT NULL DEFAULT '',
+                execution_result TEXT NOT NULL DEFAULT '',
+                origin TEXT NOT NULL DEFAULT 'manual',
+                last_progress_at REAL,
+                deferred_until REAL,
+                parent_todo_id TEXT
+            );
+            """)
+
+        try database.execute("""
+            CREATE INDEX IF NOT EXISTS idx_todos_status_due
+            ON todos(is_completed, due_at, updated_at DESC);
+            """)
+
+        try database.execute("""
+            CREATE INDEX IF NOT EXISTS idx_todos_quadrant
+            ON todos(quadrant, is_completed);
             """)
 
         try ensureColumnExists(
@@ -589,6 +826,13 @@ actor LocalKnowledgeStore: KnowledgeStore {
             column: "clarification_round_count",
             definition: "INTEGER NOT NULL DEFAULT 0"
         )
+        try ensureColumnExists(database: database, table: "todos", column: "source_refs_json", definition: "TEXT NOT NULL DEFAULT '[]'")
+        try ensureColumnExists(database: database, table: "todos", column: "source_reason", definition: "TEXT NOT NULL DEFAULT ''")
+        try ensureColumnExists(database: database, table: "todos", column: "execution_result", definition: "TEXT NOT NULL DEFAULT ''")
+        try ensureColumnExists(database: database, table: "todos", column: "origin", definition: "TEXT NOT NULL DEFAULT 'manual'")
+        try ensureColumnExists(database: database, table: "todos", column: "last_progress_at", definition: "REAL")
+        try ensureColumnExists(database: database, table: "todos", column: "deferred_until", definition: "REAL")
+        try ensureColumnExists(database: database, table: "todos", column: "parent_todo_id", definition: "TEXT")
         try ensureColumnExists(
             database: database,
             table: "records",
@@ -1153,6 +1397,58 @@ actor LocalKnowledgeStore: KnowledgeStore {
         }
 
         return dotProduct / (sqrt(lhsMagnitude) * sqrt(rhsMagnitude))
+    }
+
+    private func decodeTodo(from statement: OpaquePointer?) throws -> TodoItem {
+        guard
+            let idString = database.string(at: 0, in: statement),
+            let id = UUID(uuidString: idString),
+            let title = database.string(at: 1, in: statement),
+            let detail = database.string(at: 2, in: statement),
+            let quadrantValue = database.string(at: 4, in: statement),
+            let quadrant = TodoQuadrant(rawValue: quadrantValue)
+        else {
+            throw CasebaseError.storageFailed("Invalid todo data in SQLite.")
+        }
+
+        let dueAt = database.isNull(at: 3, in: statement)
+            ? nil
+            : Date(timeIntervalSince1970: database.double(at: 3, in: statement))
+        let completedAt = database.isNull(at: 8, in: statement)
+            ? nil
+            : Date(timeIntervalSince1970: database.double(at: 8, in: statement))
+        let sourceReferences = try decodeJSONValue(
+            database.string(at: 9, in: statement) ?? "[]",
+            as: [TodoSourceReference].self
+        )
+        let origin = TodoOrigin(rawValue: database.string(at: 12, in: statement) ?? "manual") ?? .manual
+        let updatedAt = Date(timeIntervalSince1970: database.double(at: 7, in: statement))
+        let lastProgressAt = database.isNull(at: 13, in: statement)
+            ? updatedAt
+            : Date(timeIntervalSince1970: database.double(at: 13, in: statement))
+        let deferredUntil = database.isNull(at: 14, in: statement)
+            ? nil
+            : Date(timeIntervalSince1970: database.double(at: 14, in: statement))
+        let parentTodoID = database.string(at: 15, in: statement).flatMap(UUID.init(uuidString:))
+
+        return TodoItem(
+            id: id,
+            title: title,
+            detail: detail,
+            dueAt: dueAt,
+            quadrant: quadrant,
+            isCompleted: database.int(at: 5, in: statement) != 0,
+            createdAt: Date(timeIntervalSince1970: database.double(at: 6, in: statement)),
+            updatedAt: updatedAt,
+            completedAt: completedAt,
+            sourceReferences: sourceReferences,
+            sourceReason: database.string(at: 10, in: statement) ?? "",
+            executionResult: database.string(at: 11, in: statement) ?? "",
+            origin: origin,
+            lastProgressAt: lastProgressAt,
+            deferredUntil: deferredUntil,
+            parentTodoID: parentTodoID
+        )
     }
 
     private static func ensureColumnExists(

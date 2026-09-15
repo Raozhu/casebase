@@ -46,6 +46,31 @@ protocol LibraryService {
     func open(record: ImportRecord) async throws
 }
 
+protocol AudioTranscriptService {
+    func linkedTranscript(forAudioRecordID id: UUID) async throws -> ImportRecord?
+    func sourceAudio(forTranscriptRecordID id: UUID) async throws -> ImportRecord?
+    func transcribeAudioRecord(id: UUID, progress: ImportProgressHandler?) async throws -> ImportRecord
+}
+
+protocol TodoService {
+    func listTodos(filters: TodoFilters, limit: Int, offset: Int) async throws -> TodoPage
+    func fetchTodo(id: UUID) async throws -> TodoItem?
+    func saveTodo(_ todo: TodoItem) async throws
+    func deleteTodo(id: UUID) async throws
+    func acceptMeetingActionItem(recordID: UUID, candidateID: UUID) async throws -> TodoItem
+    func dismissMeetingActionItem(recordID: UUID, candidateID: UUID) async throws
+    func deferStaleTodo(id: UUID, days: Int) async throws -> TodoItem
+    func breakDownStaleTodo(id: UUID) async throws -> [TodoItem]
+}
+
+protocol MeetingActionItemExtracting {
+    func extractActionItems(transcript: String, meetingTitle: String, referenceDate: Date) async throws -> [MeetingActionItemCandidate]
+}
+
+protocol TodoBreakdownProviding {
+    func breakDown(todo: TodoItem, sourceContext: String) async throws -> [String]
+}
+
 protocol ImportCoordinator {
     func importPayload(_ payload: ImportPayload, progress: ImportProgressHandler?) async throws -> ImportRecord
     func importPayload(_ payload: ImportPayload) async throws -> ImportRecord

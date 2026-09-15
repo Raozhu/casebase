@@ -80,6 +80,7 @@ struct NotchLibraryDetailView: View {
             metadataCard(record: record)
             structuredDataCard(record: record)
             transcriptCard(record: record)
+            meetingActionItemsCard(record: record)
             snippetsCard(record: record)
 
             if let libraryErrorMessage = viewModel.libraryErrorMessage, !libraryErrorMessage.isEmpty {
@@ -334,7 +335,7 @@ struct NotchLibraryDetailView: View {
 
     private func transcriptCard(record: ImportRecord) -> some View {
         Group {
-            if MeetingRecordMetadata.isMeetingRecord(record),
+            if (MeetingRecordMetadata.isMeetingRecord(record) || MeetingRecordMetadata.isTranscriptRecord(record)),
                let transcript = record.userSupplement?.trimmingCharacters(in: .whitespacesAndNewlines),
                !transcript.isEmpty
             {
@@ -359,6 +360,65 @@ struct NotchLibraryDetailView: View {
         }
     }
 
+    private func meetingActionItemsCard(record: ImportRecord) -> some View {
+        let items = viewModel.pendingMeetingActionItems(for: record)
+        return Group {
+            if !items.isEmpty {
+                librarySectionCard(title: CasebasePromptCatalog.language == .simplifiedChinese ? "待确认行动项" : "Action items to confirm") {
+                    VStack(spacing: 9) {
+                        ForEach(items) { item in
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(item.title)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                let metadata = [
+                                    item.owner.isEmpty ? nil : (CasebasePromptCatalog.language == .simplifiedChinese ? "负责人：\(item.owner)" : "Owner: \(item.owner)"),
+                                    item.dueText.isEmpty ? nil : (CasebasePromptCatalog.language == .simplifiedChinese ? "时间：\(item.dueText)" : "Due: \(item.dueText)"),
+                                ].compactMap { $0 }
+                                if !metadata.isEmpty {
+                                    Text(metadata.joined(separator: " · "))
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(Color.white.opacity(0.52))
+                                }
+
+                                Text(item.reason)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color.white.opacity(0.68))
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                Text("“\(item.evidence)”")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Color.white.opacity(0.42))
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                HStack(spacing: 7) {
+                                    Spacer()
+                                    TodoInlineDecisionButton(
+                                        title: CasebasePromptCatalog.language == .simplifiedChinese ? "忽略" : "Dismiss",
+                                        action: { viewModel.dismissMeetingActionItem(recordID: record.id, candidateID: item.id) }
+                                    )
+                                    TodoInlineDecisionButton(
+                                        title: CasebasePromptCatalog.language == .simplifiedChinese ? "加入待办" : "Add to-do",
+                                        emphasized: true,
+                                        action: { viewModel.acceptMeetingActionItem(recordID: record.id, candidateID: item.id) }
+                                    )
+                                }
+                                .disabled(viewModel.processingMeetingActionItemIDs.contains(item.id))
+                            }
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color.white.opacity(0.045))
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private var actionBar: some View {
         HStack(spacing: 8) {
             Spacer(minLength: 0)
@@ -376,6 +436,25 @@ struct NotchLibraryDetailView: View {
                 action: viewModel.openSelectedLibraryRecord
             )
             .frame(width: LibraryActionTileButton.standardWidth)
+
+            if viewModel.canShowSelectedAudioTranscriptAction {
+                LibraryActionTileButton(
+                    icon: .text,
+                    title: viewModel.selectedAudioTranscriptActionTitle,
+                    action: viewModel.performSelectedAudioTranscriptAction
+                )
+                .frame(width: LibraryActionTileButton.standardWidth)
+                .disabled(viewModel.isSelectedAudioTranscriptActionDisabled)
+            }
+
+            if viewModel.canShowSelectedTranscriptSourceAction {
+                LibraryActionTileButton(
+                    icon: .audio,
+                    title: CasebasePromptCatalog.language == .simplifiedChinese ? "查看录音" : "View audio",
+                    action: viewModel.openSelectedTranscriptSourceAudio
+                )
+                .frame(width: LibraryActionTileButton.standardWidth)
+            }
 
             LibraryActionTileButton(
                 icon: .trash,
@@ -416,6 +495,27 @@ struct NotchLibraryDetailView: View {
         case .failed:
             return .danger
         }
+    }
+}
+
+private struct TodoInlineDecisionButton: View {
+    let title: String
+    var emphasized = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(emphasized ? Color.black : Color.white.opacity(0.76))
+                .padding(.horizontal, 11)
+                .frame(height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(emphasized ? Color.white : Color.white.opacity(0.06))
+                )
+        }
+        .buttonStyle(.plain)
     }
 }
 

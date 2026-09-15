@@ -31,7 +31,23 @@ final class CasebaseLibraryService: LibraryService {
             throw CasebaseError.recordNotFound(id)
         }
 
+        let linkedAudioID = MeetingRecordMetadata.sourceAudioRecordID(in: record)
+        let linkedTranscriptID = MeetingRecordMetadata.linkedTranscriptRecordID(in: record)
+
         try await knowledgeStore.deleteRecord(id: id)
+
+        if let linkedAudioID,
+           var audioRecord = try? await knowledgeStore.fetchRecord(id: linkedAudioID)
+        {
+            audioRecord.structuredData.removeValue(forKey: MeetingRecordMetadata.linkedTranscriptRecordIDKey)
+            try? await knowledgeStore.update(audioRecord)
+        }
+        if let linkedTranscriptID,
+           var transcriptRecord = try? await knowledgeStore.fetchRecord(id: linkedTranscriptID)
+        {
+            transcriptRecord.structuredData[MeetingRecordMetadata.sourceAudioDeletedKey] = .bool(true)
+            try? await knowledgeStore.update(transcriptRecord)
+        }
 
         let assetURL = resolvedAssetURL(for: record)
         if fileManager.fileExists(atPath: assetURL.path) {
@@ -45,6 +61,7 @@ final class CasebaseLibraryService: LibraryService {
             object: nil,
             userInfo: ["recordID": id.uuidString]
         )
+        NotificationCenter.default.post(name: .casebaseRecordsChanged, object: nil)
     }
 
     func revealInFinder(record: ImportRecord) async throws {

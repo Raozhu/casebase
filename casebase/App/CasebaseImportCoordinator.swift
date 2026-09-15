@@ -292,6 +292,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
     private let maximumImportFileBytes: Int64
     private let visibleShortcutService: CasebaseVisibleShortcutService?
     private let meetingTranscriber: AudioTranscriber?
+    private let actionItemExtractor: MeetingActionItemExtracting?
 
     init(
         extractor: Extractor,
@@ -300,7 +301,8 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         assetVault: AssetVault,
         maximumImportFileBytes: Int64,
         visibleShortcutService: CasebaseVisibleShortcutService? = nil,
-        meetingTranscriber: AudioTranscriber? = nil
+        meetingTranscriber: AudioTranscriber? = nil,
+        actionItemExtractor: MeetingActionItemExtracting? = nil
     ) {
         self.extractor = extractor
         self.knowledgeStore = knowledgeStore
@@ -309,6 +311,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         self.maximumImportFileBytes = maximumImportFileBytes
         self.visibleShortcutService = visibleShortcutService
         self.meetingTranscriber = meetingTranscriber
+        self.actionItemExtractor = actionItemExtractor
     }
 
     func importPayload(_ payload: ImportPayload, progress: ImportProgressHandler?) async throws -> ImportRecord {
@@ -595,6 +598,33 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             transcription: transcriptionOutcome.transcription,
             failureDescription: transcriptionOutcome.failureDescription
         )
+        var structuredData = draft.structuredData
+        if let actionItemExtractor,
+           let transcriptText = draft.transcriptText,
+           !transcriptText.isEmpty
+        {
+            progress?(ImportProgressUpdate(
+                phase: .recognizing,
+                detailText: meetingLabel(chinese: "正在识别会议行动项", english: "Extracting meeting action items")
+            ))
+            do {
+                let referenceDate = Self.meetingMetadataDateFormatter.date(
+                    from: filePayload.contextMetadata[MeetingRecordMetadata.startedAtKey] ?? ""
+                ) ?? Date()
+                let actionItems = try await actionItemExtractor.extractActionItems(
+                    transcript: transcriptText,
+                    meetingTitle: draft.title,
+                    referenceDate: referenceDate
+                )
+                let data = try JSONEncoder().encode(actionItems)
+                if let json = String(data: data, encoding: .utf8) {
+                    structuredData[MeetingRecordMetadata.actionItemsKey] = .string(json)
+                }
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                structuredData[MeetingRecordMetadata.actionItemExtractionErrorKey] = .string(message)
+            }
+        }
 
         let organizedAsset = try await measureImportStage(
             "meeting-organize-asset",
@@ -623,7 +653,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             shortSummary: draft.shortSummary,
             usefulSnippets: draft.usefulSnippets,
             tags: draft.tags,
-            structuredData: draft.structuredData,
+            structuredData: structuredData,
             searchText: draft.searchText,
             userSupplement: draft.transcriptText,
             clarificationRequest: nil,

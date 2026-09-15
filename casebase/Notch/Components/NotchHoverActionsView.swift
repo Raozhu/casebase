@@ -3,6 +3,7 @@ import SwiftUI
 struct NotchHoverActionsView: View {
     let onOpenMeeting: () -> Void
     let onOpenLibrary: () -> Void
+    let onOpenTodos: () -> Void
     let onOpenSettings: () -> Void
     let onOpenSearch: () -> Void
     let showsSelectionCapturePrompt: Bool
@@ -46,7 +47,7 @@ struct NotchHoverActionsView: View {
                 )
             }
 
-            HStack(spacing: 14) {
+            HStack(spacing: 8) {
                 HoverActionButton(
                     icon: .audio,
                     helpText: CasebasePromptCatalog.ui.hoverActionMeetingTooltip,
@@ -57,6 +58,12 @@ struct NotchHoverActionsView: View {
                     icon: .gear,
                     helpText: CasebasePromptCatalog.ui.hoverActionSettingsTooltip,
                     action: onOpenSettings
+                )
+
+                HoverActionButton(
+                    icon: .check,
+                    helpText: CasebasePromptCatalog.ui.hoverActionTodoTooltip,
+                    action: onOpenTodos
                 )
 
                 HoverActionButton(
@@ -71,6 +78,7 @@ struct NotchHoverActionsView: View {
                     action: onOpenSearch
                 )
             }
+            .frame(maxWidth: .infinity)
 
             Text(CasebasePromptCatalog.ui.hoverActionHint)
                 .font(.system(size: 11, weight: .medium))
@@ -141,6 +149,8 @@ private struct HoverActionButton: View {
             return CasebasePromptCatalog.language == .simplifiedChinese ? "会议" : "Meeting"
         case .gear:
             return CasebasePromptCatalog.language == .simplifiedChinese ? "设置" : "Settings"
+        case .check:
+            return CasebasePromptCatalog.language == .simplifiedChinese ? "待办" : "To-do"
         case .library:
             return CasebasePromptCatalog.language == .simplifiedChinese ? "数据" : "Library"
         case .search:
@@ -162,7 +172,8 @@ private struct HoverActionButton: View {
 
                     NotchPixelDisplayIcon(icon: icon, tone: .neutral, size: 20, glowOpacity: 0.08)
                 }
-                .frame(width: 56, height: 48)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
 
                 Text(label)
                     .font(.system(size: 10, weight: .medium))
@@ -170,8 +181,9 @@ private struct HoverActionButton: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .frame(width: 64)
+            .frame(maxWidth: .infinity)
         }
+        .frame(maxWidth: .infinity)
         .buttonStyle(.plain)
         .help(helpText)
     }

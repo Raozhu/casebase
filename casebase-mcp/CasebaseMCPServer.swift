@@ -112,6 +112,54 @@ final class CasebaseMCPServer {
             let recordID = try requireUUID(arguments, key: "id")
             let payload = try await runtime.getRecord(id: recordID)
             return try toolResult(from: payload)
+        case "casebase_list_todos":
+            let parsed = try parseTodoListArguments(arguments)
+            let payload = try await runtime.listTodos(
+                filters: parsed.filters,
+                limit: parsed.limit,
+                offset: parsed.offset
+            )
+            return try toolResult(from: payload)
+        case "casebase_get_todo":
+            let todoID = try requireUUID(arguments, key: "id")
+            let payload = try await runtime.getTodo(id: todoID)
+            return try toolResult(from: payload)
+        case "casebase_create_todo":
+            let title = try requireString(arguments, key: "title").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { throw MCPProtocolError(code: -32602, message: "title must not be empty.") }
+            let quadrant = try parseTodoQuadrant(arguments, key: "quadrant") ?? .importantNotUrgent
+            let payload = try await runtime.createTodo(
+                title: title,
+                detail: try optionalString(arguments, key: "detail") ?? "",
+                dueAt: try optionalISO8601Date(arguments, key: "due_at"),
+                quadrant: quadrant,
+                sourceRecordIDs: try optionalUUIDArray(arguments, key: "source_record_ids") ?? [],
+                sourceReason: try optionalString(arguments, key: "source_reason") ?? ""
+            )
+            return try toolResult(from: payload)
+        case "casebase_update_todo":
+            let todoID = try requireUUID(arguments, key: "id")
+            let mutableKeys = ["title", "detail", "due_at", "quadrant", "completed", "execution_result", "source_record_ids", "source_reason"]
+            guard mutableKeys.contains(where: { arguments.keys.contains($0) }) else {
+                throw MCPProtocolError(code: -32602, message: "At least one editable field is required.")
+            }
+            let title = try optionalString(arguments, key: "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let title, title.isEmpty { throw MCPProtocolError(code: -32602, message: "title must not be empty.") }
+            let payload = try await runtime.updateTodo(
+                id: todoID,
+                title: title,
+                detail: try optionalString(arguments, key: "detail"),
+                dueAt: try optionalISO8601Date(arguments, key: "due_at"),
+                dueAtProvided: arguments.keys.contains("due_at"),
+                quadrant: try parseTodoQuadrant(arguments, key: "quadrant"),
+                completed: try optionalBool(arguments, key: "completed"),
+                executionResult: try optionalString(arguments, key: "execution_result"),
+                sourceRecordIDs: arguments.keys.contains("source_record_ids")
+                    ? (try optionalUUIDArray(arguments, key: "source_record_ids") ?? [])
+                    : nil,
+                sourceReason: try optionalString(arguments, key: "source_reason")
+            )
+            return try toolResult(from: payload)
         default:
             throw MCPProtocolError(code: -32602, message: "Unknown tool: \(toolName)")
         }
@@ -164,7 +212,110 @@ final class CasebaseMCPServer {
                         "additionalProperties": false,
                     ],
                 ],
+                [
+                    "name": "casebase_list_todos",
+                    "description": "Read the local Casebase to-do list with optional quadrant, completion, keyword, and due-date filters. This tool is read-only.",
+                    "inputSchema": todoListSchema(),
+                ],
+                [
+                    "name": "casebase_get_todo",
+                    "description": "Read one local Casebase to-do item by id. This tool is read-only.",
+                    "inputSchema": [
+                        "type": "object",
+                        "properties": [
+                            "id": [
+                                "type": "string",
+                                "description": "Todo UUID.",
+                            ],
+                        ],
+                        "required": ["id"],
+                        "additionalProperties": false,
+                    ],
+                ],
+                [
+                    "name": "casebase_create_todo",
+                    "description": "Create a Casebase to-do. Optionally link local Casebase records so the task retains its evidence and context.",
+                    "inputSchema": todoMutationSchema(isUpdate: false),
+                ],
+                [
+                    "name": "casebase_update_todo",
+                    "description": "Update a Casebase to-do, attach supporting records, write an execution result, or mark it completed after using Casebase evidence.",
+                    "inputSchema": todoMutationSchema(isUpdate: true),
+                ],
             ],
+        ]
+    }
+
+    private func todoListSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "properties": [
+                "limit": [
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": TodoPaging.maximumLimit,
+                    "default": TodoPaging.defaultLimit,
+                ],
+                "offset": [
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0,
+                ],
+                "query": [
+                    "type": "string",
+                    "description": "Optional keyword matched against todo title and description.",
+                ],
+                "quadrant": [
+                    "type": "string",
+                    "enum": TodoQuadrant.allCases.map(\.rawValue),
+                    "description": "Optional Eisenhower matrix quadrant filter.",
+                ],
+                "completed": [
+                    "type": "boolean",
+                    "description": "Optional completion-state filter.",
+                ],
+                "due_before": [
+                    "type": "string",
+                    "description": "Optional inclusive ISO-8601 due-date upper bound.",
+                ],
+                "due_after": [
+                    "type": "string",
+                    "description": "Optional inclusive ISO-8601 due-date lower bound.",
+                ],
+            ],
+            "required": [],
+            "additionalProperties": false,
+        ]
+    }
+
+    private func todoMutationSchema(isUpdate: Bool) -> [String: Any] {
+        var properties: [String: Any] = [
+            "title": ["type": "string", "description": "Concrete action-oriented todo title."],
+            "detail": ["type": "string", "description": "Optional task description."],
+            "due_at": ["type": ["string", "null"], "description": "ISO-8601 due date. Use null on update to clear it."],
+            "quadrant": ["type": "string", "enum": TodoQuadrant.allCases.map(\.rawValue)],
+            "source_record_ids": [
+                "type": "array",
+                "items": ["type": "string"],
+                "description": "Casebase record UUIDs that explain or support this task.",
+            ],
+            "source_reason": ["type": "string", "description": "Why this todo exists and how the linked sources support it."],
+        ]
+        var required = ["title"]
+        if isUpdate {
+            properties["id"] = ["type": "string", "description": "Todo UUID."]
+            properties["completed"] = ["type": "boolean", "description": "Set completion state."]
+            properties["execution_result"] = [
+                "type": "string",
+                "description": "Result produced by the external AI after consulting Casebase sources.",
+            ]
+            required = ["id"]
+        }
+        return [
+            "type": "object",
+            "properties": properties,
+            "required": required,
+            "additionalProperties": false,
         ]
     }
 
@@ -281,6 +432,56 @@ final class CasebaseMCPServer {
         )
     }
 
+    private func parseTodoListArguments(_ arguments: [String: Any]) throws -> ParsedTodoListArguments {
+        let limit = try optionalInt(arguments, key: "limit") ?? TodoPaging.defaultLimit
+        guard limit >= 1, limit <= TodoPaging.maximumLimit else {
+            throw MCPProtocolError(
+                code: -32602,
+                message: "limit must be between 1 and \(TodoPaging.maximumLimit)."
+            )
+        }
+
+        let offset = try optionalInt(arguments, key: "offset") ?? 0
+        guard offset >= 0 else {
+            throw MCPProtocolError(code: -32602, message: "offset must be >= 0.")
+        }
+
+        let query = try optionalString(arguments, key: "query")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let quadrant: TodoQuadrant?
+        if let rawQuadrant = try optionalString(arguments, key: "quadrant") {
+            guard let parsed = TodoQuadrant(rawValue: rawQuadrant) else {
+                throw MCPProtocolError(code: -32602, message: "Unsupported quadrant: \(rawQuadrant).")
+            }
+            quadrant = parsed
+        } else {
+            quadrant = nil
+        }
+
+        let dueBefore = try optionalISO8601Date(arguments, key: "due_before")
+        let dueAfter = try optionalISO8601Date(arguments, key: "due_after")
+
+        return ParsedTodoListArguments(
+            limit: limit,
+            offset: offset,
+            filters: TodoFilters(
+                query: query?.isEmpty == true ? nil : query,
+                quadrant: quadrant,
+                isCompleted: try optionalBool(arguments, key: "completed"),
+                dueBefore: dueBefore,
+                dueAfter: dueAfter
+            )
+        )
+    }
+
+    private func parseTodoQuadrant(_ arguments: [String: Any], key: String) throws -> TodoQuadrant? {
+        guard let rawValue = try optionalString(arguments, key: key) else { return nil }
+        guard let quadrant = TodoQuadrant(rawValue: rawValue) else {
+            throw MCPProtocolError(code: -32602, message: "Unsupported quadrant: \(rawValue).")
+        }
+        return quadrant
+    }
+
     private func toolResult<T: Encodable>(from payload: T) throws -> [String: Any] {
         let structured = try jsonObject(from: payload)
         return [
@@ -371,6 +572,16 @@ final class CasebaseMCPServer {
         }
     }
 
+    private func optionalUUIDArray(_ arguments: [String: Any], key: String) throws -> [UUID]? {
+        guard let values = try optionalStringArray(arguments, key: key) else { return nil }
+        return try values.map { value in
+            guard let id = UUID(uuidString: value) else {
+                throw MCPProtocolError(code: -32602, message: "Invalid UUID in \(key): \(value)")
+            }
+            return id
+        }
+    }
+
     private func optionalInt(_ arguments: [String: Any], key: String) throws -> Int? {
         guard let rawValue = arguments[key] else { return nil }
         if rawValue is NSNull {
@@ -399,6 +610,23 @@ final class CasebaseMCPServer {
         throw MCPProtocolError(code: -32602, message: "\(key) must be a boolean.")
     }
 
+    private func optionalISO8601Date(_ arguments: [String: Any], key: String) throws -> Date? {
+        guard let value = try optionalString(arguments, key: key) else { return nil }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) {
+            return date
+        }
+
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: value) {
+            return date
+        }
+
+        throw MCPProtocolError(code: -32602, message: "\(key) must be an ISO-8601 date string.")
+    }
+
     private func isBoolean(_ number: NSNumber) -> Bool {
         CFGetTypeID(number) == CFBooleanGetTypeID()
     }
@@ -415,6 +643,12 @@ private struct ParsedSearchArguments {
     let limit: Int
     let offset: Int
     let filters: RecordCatalogFilters
+}
+
+private struct ParsedTodoListArguments {
+    let limit: Int
+    let offset: Int
+    let filters: TodoFilters
 }
 
 private struct MCPRequest {

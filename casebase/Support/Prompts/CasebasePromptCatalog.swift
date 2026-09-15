@@ -119,6 +119,13 @@ enum CasebasePromptCatalog {
             }
         }
 
+        var hoverActionTodoTooltip: String {
+            switch language {
+            case .simplifiedChinese: return "待办"
+            case .english: return "To-do"
+            }
+        }
+
         var hoverActionSearchTooltip: String {
             switch language {
             case .simplifiedChinese: return "探索"

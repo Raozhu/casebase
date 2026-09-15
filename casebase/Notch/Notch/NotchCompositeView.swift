@@ -69,6 +69,7 @@ struct NotchCompositeView: View {
             NotchHoverActionsView(
                 onOpenMeeting: viewModel.openMeeting,
                 onOpenLibrary: viewModel.openLibrary,
+                onOpenTodos: viewModel.openTodos,
                 onOpenSettings: viewModel.openSettings,
                 onOpenSearch: viewModel.openSearch,
                 showsSelectionCapturePrompt: !viewModel.selectionCaptureAuthorized,
@@ -109,6 +110,12 @@ struct NotchCompositeView: View {
             NotchLibraryView(viewModel: viewModel, isMeasuring: forMeasurement)
         case .libraryDetail:
             NotchLibraryDetailView(viewModel: viewModel, isMeasuring: forMeasurement)
+        case .todos:
+            NotchTodoListView(viewModel: viewModel, isMeasuring: forMeasurement)
+        case .todoEditor:
+            NotchTodoEditorView(viewModel: viewModel, isMeasuring: forMeasurement)
+        case .todoDeleteConfirmation:
+            NotchTodoDeleteConfirmationView(viewModel: viewModel, isMeasuring: forMeasurement)
         case .settings:
             NotchSettingsView(
                 allowsLiveShortcutRecording: !forMeasurement,
@@ -180,7 +187,7 @@ struct NotchCompositeView: View {
 
     private var showsChromeSettingsButton: Bool {
         switch viewModel.surfaceState {
-        case .idle, .hoverActions, .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .settings, .settingsAPIKeys, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .savedPreview, .search:
+        case .idle, .hoverActions, .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .todos, .todoEditor, .todoDeleteConfirmation, .settings, .settingsAPIKeys, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .savedPreview, .search:
             return false
         case .ingesting, .answering, .answerReady, .error:
             return true

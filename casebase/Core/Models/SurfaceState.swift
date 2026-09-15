@@ -9,6 +9,9 @@ enum CasebaseSurfaceState: String, Codable, Hashable {
     case meetingFinishConfirmation
     case library
     case libraryDetail
+    case todos
+    case todoEditor
+    case todoDeleteConfirmation
     case settings
     case settingsAPIKeys
     case settingsDataResetConfirmation
@@ -28,7 +31,7 @@ extension CasebaseSurfaceState {
         switch self {
         case .idle, .hoverActions:
             return false
-        case .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .settings, .settingsAPIKeys, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .search, .answering, .answerReady, .error:
+        case .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .todos, .todoEditor, .todoDeleteConfirmation, .settings, .settingsAPIKeys, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .search, .answering, .answerReady, .error:
             return true
         }
     }
@@ -37,7 +40,7 @@ extension CasebaseSurfaceState {
         switch self {
         case .idle:
             return false
-        case .hoverActions, .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .settings, .settingsAPIKeys, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .search, .answering, .answerReady, .error:
+        case .hoverActions, .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .todos, .todoEditor, .todoDeleteConfirmation, .settings, .settingsAPIKeys, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .ingesting, .savedPreview, .search, .answering, .answerReady, .error:
             return true
         }
     }

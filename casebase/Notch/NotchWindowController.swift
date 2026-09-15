@@ -1,4 +1,5 @@
 import Cocoa
+import Carbon.HIToolbox
 import SwiftUI
 
 private let topOverlayHeight: CGFloat = 700
@@ -8,9 +9,11 @@ final class NotchWindowController: NSWindowController {
     let viewModel: NotchViewModel
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
+    private var textEditingKeyMonitor: Any?
     private var dataResetObserver: Any?
     private var recordDeletedObserver: Any?
     private var recordsReorganizedObserver: Any?
+    private var recordsChangedObserver: Any?
     private var appDidBecomeActiveObserver: Any?
     private let selectionAnimationController: SelectionCaptureAnimationWindowController
 
@@ -36,6 +39,8 @@ final class NotchWindowController: NSWindowController {
             importCoordinator: runtime?.importCoordinator,
             answerService: runtime?.answerService,
             libraryService: runtime?.libraryService,
+            todoService: runtime?.todoService,
+            audioTranscriptService: runtime?.audioTranscriptService,
             storageRootDirectory: runtime?.configuration.storage.rootDirectory,
             dataResetService: runtime?.dataResetService,
             meetingRecorder: runtime?.meetingRecorder,
@@ -57,9 +62,11 @@ final class NotchWindowController: NSWindowController {
         window.setFrameOrigin(topRect.origin)
         window.orderFrontRegardless()
         installMouseDismissMonitors()
+        installTextEditingShortcutMonitor()
         installDataResetObserver()
         installRecordDeletedObserver()
         installRecordsReorganizedObserver()
+        installRecordsChangedObserver()
         installAppDidBecomeActiveObserver()
 
         DispatchQueue.main.async { [weak self] in
@@ -72,9 +79,11 @@ final class NotchWindowController: NSWindowController {
 
     func destroy() {
         removeMouseDismissMonitors()
+        removeTextEditingShortcutMonitor()
         removeDataResetObserver()
         removeRecordDeletedObserver()
         removeRecordsReorganizedObserver()
+        removeRecordsChangedObserver()
         removeAppDidBecomeActiveObserver()
         selectionAnimationController.destroy()
         viewModel.collapse()
@@ -85,9 +94,11 @@ final class NotchWindowController: NSWindowController {
 
     deinit {
         removeMouseDismissMonitors()
+        removeTextEditingShortcutMonitor()
         removeDataResetObserver()
         removeRecordDeletedObserver()
         removeRecordsReorganizedObserver()
+        removeRecordsChangedObserver()
         removeAppDidBecomeActiveObserver()
     }
 
@@ -103,6 +114,9 @@ final class NotchWindowController: NSWindowController {
         ) { [weak self] event in
             guard let self, let window = self.window else { return event }
             let location = window.convertPoint(toScreen: event.locationInWindow)
+            if self.viewModel.surfaceRect.contains(CGPoint(x: location.x, y: location.y)), !window.isKeyWindow {
+                window.makeKey()
+            }
             self.dismissIfNeeded(at: location)
             return event
         }
@@ -117,6 +131,63 @@ final class NotchWindowController: NSWindowController {
             NSEvent.removeMonitor(localMouseMonitor)
             self.localMouseMonitor = nil
         }
+    }
+
+    private func installTextEditingShortcutMonitor() {
+        textEditingKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, let window = self.window else { return event }
+            guard event.window === window || (event.window == nil && window.isKeyWindow) else { return event }
+
+            let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            guard modifiers == .command, let action = self.textEditingAction(for: event.keyCode) else {
+                return event
+            }
+
+            guard self.performTextEditingAction(action, in: window) else { return event }
+            return nil
+        }
+    }
+
+    private func removeTextEditingShortcutMonitor() {
+        guard let textEditingKeyMonitor else { return }
+        NSEvent.removeMonitor(textEditingKeyMonitor)
+        self.textEditingKeyMonitor = nil
+    }
+
+    private func textEditingAction(for keyCode: UInt16) -> Selector? {
+        switch Int(keyCode) {
+        case kVK_ANSI_C:
+            return #selector(NSText.copy(_:))
+        case kVK_ANSI_V:
+            return #selector(NSText.paste(_:))
+        case kVK_ANSI_X:
+            return #selector(NSText.cut(_:))
+        case kVK_ANSI_A:
+            return #selector(NSStandardKeyBindingResponding.selectAll(_:))
+        default:
+            return nil
+        }
+    }
+
+    private func performTextEditingAction(_ action: Selector, in window: NSWindow) -> Bool {
+        guard let responder = window.firstResponder else { return false }
+
+        if let textView = responder as? NSTextView {
+            let actionName = NSStringFromSelector(action)
+            if actionName == "copy:" || actionName == "selectAll:" {
+                guard textView.isSelectable else { return false }
+            } else {
+                guard textView.isEditable else { return false }
+            }
+            return textView.tryToPerform(action, with: nil)
+        }
+
+        if let textField = responder as? NSTextField {
+            guard textField.isEditable, let editor = textField.currentEditor() else { return false }
+            return editor.tryToPerform(action, with: nil)
+        }
+
+        return false
     }
 
     private func installDataResetObserver() {
@@ -185,6 +256,18 @@ final class NotchWindowController: NSWindowController {
         }
     }
 
+    private func installRecordsChangedObserver() {
+        recordsChangedObserver = NotificationCenter.default.addObserver(
+            forName: .casebaseRecordsChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.viewModel.handleRecordsChanged()
+            }
+        }
+    }
+
     private func removeAppDidBecomeActiveObserver() {
         if let appDidBecomeActiveObserver {
             NotificationCenter.default.removeObserver(appDidBecomeActiveObserver)
@@ -196,6 +279,13 @@ final class NotchWindowController: NSWindowController {
         if let recordsReorganizedObserver {
             NotificationCenter.default.removeObserver(recordsReorganizedObserver)
             self.recordsReorganizedObserver = nil
+        }
+    }
+
+    private func removeRecordsChangedObserver() {
+        if let recordsChangedObserver {
+            NotificationCenter.default.removeObserver(recordsChangedObserver)
+            self.recordsChangedObserver = nil
         }
     }
 

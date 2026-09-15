@@ -21,6 +21,7 @@
 		90A0B000000000000000000C /* CasebaseConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B1000000000000000019 /* CasebaseConfiguration.swift */; };
 		90A0B000000000000000000D /* CasebaseLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B100000000000000001A /* CasebaseLanguage.swift */; };
 		90A0B000000000000000000E /* CasebasePromptCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B100000000000000001B /* CasebasePromptCatalog.swift */; };
+		90A0B000000000000000000F /* TodoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A0B100000000000000001C /* TodoModels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +40,7 @@
 		90A0B1000000000000000019 /* CasebaseConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Support/Config/CasebaseConfiguration.swift; sourceTree = SOURCE_ROOT; };
 		90A0B100000000000000001A /* CasebaseLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Support/Localization/CasebaseLanguage.swift; sourceTree = SOURCE_ROOT; };
 		90A0B100000000000000001B /* CasebasePromptCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Support/Prompts/CasebasePromptCatalog.swift; sourceTree = SOURCE_ROOT; };
+		90A0B100000000000000001C /* TodoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = casebase/Core/Models/TodoModels.swift; sourceTree = SOURCE_ROOT; };
 		90A0B10000000000000000FF /* casebase-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = casebase-mcp; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -124,6 +126,7 @@
 				90A0B1000000000000000019 /* CasebaseConfiguration.swift */,
 				90A0B100000000000000001A /* CasebaseLanguage.swift */,
 				90A0B100000000000000001B /* CasebasePromptCatalog.swift */,
+				90A0B100000000000000001C /* TodoModels.swift */,
 			);
 			name = "casebase-mcp Shared";
 			sourceTree = "<group>";
@@ -244,6 +247,7 @@
 				90A0B000000000000000000C /* CasebaseConfiguration.swift in Sources */,
 				90A0B000000000000000000D /* CasebaseLanguage.swift in Sources */,
 				90A0B000000000000000000E /* CasebasePromptCatalog.swift in Sources */,
+				90A0B000000000000000000F /* TodoModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

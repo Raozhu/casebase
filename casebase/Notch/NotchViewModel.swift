@@ -60,6 +60,10 @@ final class NotchViewModel: ObservableObject {
     let libraryMaxPanelHeight: CGFloat = 456
     let libraryDetailPreferredPanelHeight: CGFloat = 468
     let libraryDetailMaxPanelHeight: CGFloat = 548
+    let todoPreferredPanelHeight: CGFloat = 448
+    let todoMaxPanelHeight: CGFloat = 590
+    let todoEditorPreferredPanelHeight: CGFloat = 512
+    let todoEditorMaxPanelHeight: CGFloat = 620
     let savedPreviewPreferredPanelHeight: CGFloat = 404
     let savedPreviewMaxPanelHeight: CGFloat = 488
     let searchPreferredPanelHeight: CGFloat = 372
@@ -94,6 +98,23 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var libraryRecords: [ImportRecord] = []
     @Published private(set) var selectedLibraryRecord: ImportRecord?
     @Published private(set) var selectedLibraryTaskID: UUID?
+    @Published private(set) var todos: [TodoItem] = []
+    @Published private(set) var todoErrorMessage: String?
+    @Published private(set) var isTodoLoading = false
+    @Published private(set) var isTodoSaving = false
+    @Published private(set) var isTodoDeleting = false
+    @Published private(set) var todoShowsCompleted = false
+    @Published private(set) var todoQuadrantFilter: TodoQuadrant?
+    @Published private(set) var selectedTodoID: UUID?
+    @Published var todoDraftTitle = ""
+    @Published var todoDraftDetail = ""
+    @Published var todoDraftHasDueDate = false
+    @Published var todoDraftDueAt = Date()
+    @Published var todoDraftQuadrant: TodoQuadrant = .importantNotUrgent
+    @Published var todoDraftSourceRecordIDs: Set<UUID> = []
+    @Published var todoDraftSourceReason = ""
+    @Published private(set) var processingMeetingActionItemIDs: Set<UUID> = []
+    @Published private(set) var processingStaleTodoIDs: Set<UUID> = []
     @Published private(set) var searchConversations: [NotchSearchConversation] = []
     @Published private(set) var activeSearchConversationID: UUID?
     @Published private(set) var searchConversationListVisible = true
@@ -108,6 +129,8 @@ final class NotchViewModel: ObservableObject {
     }
     @Published private(set) var isLibraryLoading = false
     @Published private(set) var isDeletingLibraryRecord = false
+    @Published private(set) var audioTranscriptQueuedRecordIDs: Set<UUID> = []
+    @Published private(set) var audioTranscriptActiveRecordID: UUID?
     @Published private(set) var intakeFeedbackMessage: String?
     @Published private(set) var ingestTasks: [NotchIngestTask] = [] {
         didSet {
@@ -140,6 +163,8 @@ final class NotchViewModel: ObservableObject {
     private let importCoordinator: ImportCoordinator?
     private let answerService: AnswerService?
     private let libraryService: LibraryService?
+    private let todoService: TodoService?
+    private let audioTranscriptService: AudioTranscriptService?
     private let dataResetService: DataResetService?
     private let meetingRecorder: CasebaseMeetingRecorder?
     private let storageRootDirectory: URL?
@@ -154,6 +179,9 @@ final class NotchViewModel: ObservableObject {
     private var restoredSurfaceStateBeforeLibrary: CasebaseSurfaceState = .hoverActions
     private var restoredStatusBeforeLibrary: Status = .expanded
     private var restoredPinnedStateBeforeLibrary = false
+    private var restoredSurfaceStateBeforeTodos: CasebaseSurfaceState = .hoverActions
+    private var restoredStatusBeforeTodos: Status = .expanded
+    private var restoredPinnedStateBeforeTodos = false
     private var restoredSurfaceStateBeforeSearch: CasebaseSurfaceState = .hoverActions
     private var restoredStatusBeforeSearch: Status = .expanded
     private var restoredPinnedStateBeforeSearch = false
@@ -166,6 +194,8 @@ final class NotchViewModel: ObservableObject {
     private var lastSubmittedQuestion: String?
     private var lastFailedAction: FailedAction?
     private var queueProcessorTask: Task<Void, Never>?
+    private var audioTranscriptQueueProcessorTask: Task<Void, Never>?
+    private var audioTranscriptQueue: [UUID] = []
     private var intakeFeedbackTask: Task<Void, Never>?
     private var finalSuccessTask: Task<Void, Never>?
     private var taskRailResultTask: Task<Void, Never>?
@@ -191,6 +221,18 @@ final class NotchViewModel: ObservableObject {
         formatter.timeStyle = .short
         return formatter
     }()
+    private static let chineseTodoDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日 HH:mm"
+        return formatter
+    }()
+    private static let englishTodoDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.dateFormat = "MMM d, HH:mm"
+        return formatter
+    }()
 
     init(
         screenFrame: CGRect,
@@ -198,6 +240,8 @@ final class NotchViewModel: ObservableObject {
         importCoordinator: ImportCoordinator? = nil,
         answerService: AnswerService? = nil,
         libraryService: LibraryService? = nil,
+        todoService: TodoService? = nil,
+        audioTranscriptService: AudioTranscriptService? = nil,
         storageRootDirectory: URL? = nil,
         dataResetService: DataResetService? = nil,
         meetingRecorder: CasebaseMeetingRecorder? = nil,
@@ -209,6 +253,8 @@ final class NotchViewModel: ObservableObject {
         self.demoModeEnabled = demoModeEnabled
         self.startupErrorMessage = startupErrorMessage
         self.libraryService = libraryService
+        self.todoService = todoService
+        self.audioTranscriptService = audioTranscriptService
         self.storageRootDirectory = storageRootDirectory
         self.dataResetService = dataResetService
         self.meetingRecorder = meetingRecorder
@@ -286,6 +332,12 @@ final class NotchViewModel: ObservableObject {
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: .library, minimum: 220))
         case .libraryDetail:
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: .libraryDetail, minimum: 300))
+        case .todos:
+            return CGSize(width: 520, height: adaptiveExpandedHeight(for: .todos, minimum: 300))
+        case .todoEditor:
+            return CGSize(width: 520, height: adaptiveExpandedHeight(for: .todoEditor, minimum: 420))
+        case .todoDeleteConfirmation:
+            return CGSize(width: 520, height: adaptiveExpandedHeight(for: .todoDeleteConfirmation, minimum: 220))
         case .settings:
             return CGSize(width: 520, height: adaptiveExpandedHeight(for: .settings, minimum: 320))
         case .settingsAPIKeys:
@@ -593,6 +645,56 @@ final class NotchViewModel: ObservableObject {
 
     var libraryEntries: [NotchLibraryEntry] {
         pendingLibraryTasks.map(NotchLibraryEntry.task) + libraryRecords.map(NotchLibraryEntry.record)
+    }
+
+    var visibleTodos: [TodoItem] {
+        let filtered = todos.filter { todo in
+            todo.isCompleted == todoShowsCompleted
+                && (todoQuadrantFilter == nil || todo.quadrant == todoQuadrantFilter)
+                && (todoShowsCompleted || !todo.isStale())
+        }
+
+        return filtered.sorted { lhs, rhs in
+            if todoShowsCompleted {
+                return (lhs.completedAt ?? lhs.updatedAt) > (rhs.completedAt ?? rhs.updatedAt)
+            }
+            if lhs.quadrant.sortRank != rhs.quadrant.sortRank {
+                return lhs.quadrant.sortRank < rhs.quadrant.sortRank
+            }
+            switch (lhs.dueAt, rhs.dueAt) {
+            case let (lhsDue?, rhsDue?) where lhsDue != rhsDue:
+                return lhsDue < rhsDue
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                return lhs.updatedAt > rhs.updatedAt
+            }
+        }
+    }
+
+    var staleTodos: [TodoItem] {
+        guard !todoShowsCompleted else { return [] }
+        return todos
+            .filter { !$0.isCompleted && $0.isStale() && (todoQuadrantFilter == nil || $0.quadrant == todoQuadrantFilter) }
+            .sorted { $0.lastProgressAt < $1.lastProgressAt }
+    }
+
+    var todoSourceCandidates: [ImportRecord] {
+        Array(libraryRecords.prefix(30))
+    }
+
+    var openTodoCount: Int {
+        todos.filter { !$0.isCompleted }.count
+    }
+
+    var isEditingExistingTodo: Bool {
+        selectedTodoID != nil
+    }
+
+    var canSaveTodoDraft: Bool {
+        !todoDraftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var selectedLibraryTask: NotchIngestTask? {
@@ -1375,6 +1477,351 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    func openTodos() {
+        guard let todoService else {
+            presentImportError(startupIntegrationError(fallback: "Todo service"))
+            return
+        }
+
+        if surfaceState == .todos || surfaceState == .todoEditor || surfaceState == .todoDeleteConfirmation {
+            isDismissed = false
+            isPinnedExpanded = true
+            status = .expanded
+            if surfaceState == .todos {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.reloadTodos(using: todoService)
+                    if let libraryService = self.libraryService {
+                        await self.reloadLibraryRecords(using: libraryService)
+                    }
+                }
+            }
+            return
+        }
+
+        restoredSurfaceStateBeforeTodos = surfaceState
+        restoredStatusBeforeTodos = status
+        restoredPinnedStateBeforeTodos = isPinnedExpanded
+
+        isDismissed = false
+        isPinnedExpanded = true
+        selectedTodoID = nil
+        todoErrorMessage = nil
+        surfaceState = .todos
+        status = .expanded
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reloadTodos(using: todoService)
+            if let libraryService = self.libraryService {
+                await self.reloadLibraryRecords(using: libraryService)
+            }
+        }
+    }
+
+    func closeTodos() {
+        guard surfaceState == .todos || surfaceState == .todoEditor || surfaceState == .todoDeleteConfirmation else {
+            return
+        }
+        isDismissed = false
+        selectedTodoID = nil
+        todoErrorMessage = nil
+        surfaceState = restoredSurfaceStateBeforeTodos
+        status = restoredStatusBeforeTodos
+        isPinnedExpanded = restoredPinnedStateBeforeTodos
+
+        if surfaceState == .hoverActions {
+            status = .expanded
+            isPinnedExpanded = true
+        }
+    }
+
+    func setTodoShowsCompleted(_ value: Bool) {
+        todoShowsCompleted = value
+    }
+
+    func setTodoQuadrantFilter(_ quadrant: TodoQuadrant?) {
+        todoQuadrantFilter = quadrant
+    }
+
+    func openNewTodo() {
+        selectedTodoID = nil
+        todoDraftTitle = ""
+        todoDraftDetail = ""
+        todoDraftHasDueDate = false
+        todoDraftDueAt = Self.defaultTodoDueDate()
+        todoDraftQuadrant = .importantNotUrgent
+        todoDraftSourceRecordIDs = []
+        todoDraftSourceReason = ""
+        todoErrorMessage = nil
+        isDismissed = false
+        isPinnedExpanded = true
+        surfaceState = .todoEditor
+        status = .expanded
+    }
+
+    func openTodoEditor(_ id: UUID) {
+        guard let todo = todos.first(where: { $0.id == id }) else { return }
+        selectedTodoID = id
+        todoDraftTitle = todo.title
+        todoDraftDetail = todo.detail
+        todoDraftHasDueDate = todo.dueAt != nil
+        todoDraftDueAt = todo.dueAt ?? Self.defaultTodoDueDate()
+        todoDraftQuadrant = todo.quadrant
+        todoDraftSourceRecordIDs = Set(todo.sourceReferences.map(\.recordID))
+        todoDraftSourceReason = todo.sourceReason
+        todoErrorMessage = nil
+        isDismissed = false
+        isPinnedExpanded = true
+        surfaceState = .todoEditor
+        status = .expanded
+    }
+
+    func closeTodoEditor() {
+        guard surfaceState == .todoEditor else { return }
+        selectedTodoID = nil
+        todoErrorMessage = nil
+        surfaceState = .todos
+        status = .expanded
+        isPinnedExpanded = true
+    }
+
+    func openTodoDeleteConfirmation() {
+        guard selectedTodoID != nil, surfaceState == .todoEditor else { return }
+        todoErrorMessage = nil
+        surfaceState = .todoDeleteConfirmation
+        status = .expanded
+        isPinnedExpanded = true
+    }
+
+    func closeTodoDeleteConfirmation() {
+        guard surfaceState == .todoDeleteConfirmation else { return }
+        todoErrorMessage = nil
+        surfaceState = .todoEditor
+        status = .expanded
+        isPinnedExpanded = true
+    }
+
+    func saveTodoDraft() {
+        guard canSaveTodoDraft, !isTodoSaving, let todoService else { return }
+
+        let now = Date()
+        let existing = selectedTodoID.flatMap { id in
+            todos.first(where: { $0.id == id })
+        }
+        let todo = TodoItem(
+            id: existing?.id ?? UUID(),
+            title: todoDraftTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+            detail: todoDraftDetail.trimmingCharacters(in: .whitespacesAndNewlines),
+            dueAt: todoDraftHasDueDate ? todoDraftDueAt : nil,
+            quadrant: todoDraftQuadrant,
+            isCompleted: existing?.isCompleted ?? false,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+            completedAt: existing?.completedAt,
+            sourceReferences: todoSourceReferences(existing: existing),
+            sourceReason: todoDraftSourceReason.trimmingCharacters(in: .whitespacesAndNewlines),
+            executionResult: existing?.executionResult ?? "",
+            origin: existing?.origin ?? .manual,
+            lastProgressAt: now,
+            deferredUntil: nil,
+            parentTodoID: existing?.parentTodoID
+        )
+
+        isTodoSaving = true
+        todoErrorMessage = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isTodoSaving = false }
+            do {
+                try await todoService.saveTodo(todo)
+                await self.reloadTodos(using: todoService)
+                self.selectedTodoID = nil
+                self.surfaceState = .todos
+                self.status = .expanded
+                self.isPinnedExpanded = true
+            } catch {
+                self.todoErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func toggleTodoCompletion(_ id: UUID) {
+        guard !isTodoSaving,
+              let todoService,
+              let todo = todos.first(where: { $0.id == id })
+        else { return }
+
+        let now = Date()
+        let updated = TodoItem(
+            id: todo.id,
+            title: todo.title,
+            detail: todo.detail,
+            dueAt: todo.dueAt,
+            quadrant: todo.quadrant,
+            isCompleted: !todo.isCompleted,
+            createdAt: todo.createdAt,
+            updatedAt: now,
+            completedAt: todo.isCompleted ? nil : now,
+            sourceReferences: todo.sourceReferences,
+            sourceReason: todo.sourceReason,
+            executionResult: todo.executionResult,
+            origin: todo.origin,
+            lastProgressAt: now,
+            deferredUntil: nil,
+            parentTodoID: todo.parentTodoID
+        )
+
+        isTodoSaving = true
+        todoErrorMessage = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isTodoSaving = false }
+            do {
+                try await todoService.saveTodo(updated)
+                await self.reloadTodos(using: todoService)
+            } catch {
+                self.todoErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func confirmTodoDelete() {
+        guard !isTodoDeleting, let id = selectedTodoID, let todoService else { return }
+        isTodoDeleting = true
+        todoErrorMessage = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isTodoDeleting = false }
+            do {
+                try await todoService.deleteTodo(id: id)
+                self.todos.removeAll { $0.id == id }
+                self.selectedTodoID = nil
+                self.surfaceState = .todos
+                self.status = .expanded
+                self.isPinnedExpanded = true
+            } catch {
+                self.todoErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func formattedTodoDueDate(_ todo: TodoItem) -> String? {
+        guard let dueAt = todo.dueAt else { return nil }
+        let formatter = CasebasePromptCatalog.language == .simplifiedChinese
+            ? Self.chineseTodoDateFormatter
+            : Self.englishTodoDateFormatter
+        return formatter.string(from: dueAt)
+    }
+
+    func isTodoOverdue(_ todo: TodoItem) -> Bool {
+        guard !todo.isCompleted, let dueAt = todo.dueAt else { return false }
+        return dueAt < Date()
+    }
+
+    func toggleTodoSource(_ recordID: UUID) {
+        if todoDraftSourceRecordIDs.contains(recordID) {
+            todoDraftSourceRecordIDs.remove(recordID)
+        } else {
+            todoDraftSourceRecordIDs.insert(recordID)
+        }
+    }
+
+    func pendingMeetingActionItems(for record: ImportRecord) -> [MeetingActionItemCandidate] {
+        MeetingRecordMetadata.actionItems(in: record).filter { $0.status == .pending }
+    }
+
+    func acceptMeetingActionItem(recordID: UUID, candidateID: UUID) {
+        guard let todoService, !processingMeetingActionItemIDs.contains(candidateID) else { return }
+        processingMeetingActionItemIDs.insert(candidateID)
+        libraryErrorMessage = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.processingMeetingActionItemIDs.remove(candidateID) }
+            do {
+                _ = try await todoService.acceptMeetingActionItem(recordID: recordID, candidateID: candidateID)
+                await self.reloadTodos(using: todoService)
+                if let libraryService = self.libraryService {
+                    await self.reloadLibraryRecords(using: libraryService)
+                }
+            } catch {
+                self.libraryErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func dismissMeetingActionItem(recordID: UUID, candidateID: UUID) {
+        guard let todoService, !processingMeetingActionItemIDs.contains(candidateID) else { return }
+        processingMeetingActionItemIDs.insert(candidateID)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.processingMeetingActionItemIDs.remove(candidateID) }
+            do {
+                try await todoService.dismissMeetingActionItem(recordID: recordID, candidateID: candidateID)
+                if let libraryService = self.libraryService {
+                    await self.reloadLibraryRecords(using: libraryService)
+                }
+            } catch {
+                self.libraryErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func deferStaleTodo(_ id: UUID) {
+        guard let todoService, !processingStaleTodoIDs.contains(id) else { return }
+        processingStaleTodoIDs.insert(id)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.processingStaleTodoIDs.remove(id) }
+            do {
+                _ = try await todoService.deferStaleTodo(id: id, days: 7)
+                await self.reloadTodos(using: todoService)
+            } catch {
+                self.todoErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func deleteStaleTodo(_ id: UUID) {
+        guard let todoService, !processingStaleTodoIDs.contains(id) else { return }
+        processingStaleTodoIDs.insert(id)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.processingStaleTodoIDs.remove(id) }
+            do {
+                try await todoService.deleteTodo(id: id)
+                self.todos.removeAll { $0.id == id }
+            } catch {
+                self.todoErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func breakDownStaleTodo(_ id: UUID) {
+        guard let todoService, !processingStaleTodoIDs.contains(id) else { return }
+        processingStaleTodoIDs.insert(id)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.processingStaleTodoIDs.remove(id) }
+            do {
+                _ = try await todoService.breakDownStaleTodo(id: id)
+                await self.reloadTodos(using: todoService)
+            } catch {
+                self.todoErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    private func todoSourceReferences(existing: TodoItem?) -> [TodoSourceReference] {
+        let existingByID = Dictionary(uniqueKeysWithValues: (existing?.sourceReferences ?? []).map { ($0.recordID, $0) })
+        return todoDraftSourceRecordIDs.compactMap { id in
+            if let record = libraryRecords.first(where: { $0.id == id }) {
+                return TodoSourceReference(recordID: id, title: record.title, sourceKind: record.sourceKind)
+            }
+            return existingByID[id]
+        }
+    }
+
     func openSearch() {
         if questionContext == .globalSearch,
            surfaceState == .search || surfaceState == .answerReady || surfaceState == .answering
@@ -1739,6 +2186,147 @@ final class NotchViewModel: ObservableObject {
             guard let self else { return }
             do {
                 try await libraryService.open(record: record)
+            } catch {
+                self.libraryErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    var selectedAudioTranscriptActionTitle: String {
+        guard let record = selectedLibraryRecord else { return "" }
+        if audioTranscriptActiveRecordID == record.id {
+            return localizedPreviewLabel(chinese: "转写中", english: "Transcribing")
+        }
+        if audioTranscriptQueuedRecordIDs.contains(record.id) {
+            return localizedPreviewLabel(chinese: "已排队", english: "Queued")
+        }
+        if MeetingRecordMetadata.linkedTranscriptRecordID(in: record) != nil {
+            return localizedPreviewLabel(chinese: "查看文字稿", english: "View transcript")
+        }
+        return localizedPreviewLabel(chinese: "转逐字稿", english: "Transcribe")
+    }
+
+    var canShowSelectedAudioTranscriptAction: Bool {
+        selectedLibraryRecord?.sourceKind == .audio
+    }
+
+    var canShowSelectedTranscriptSourceAction: Bool {
+        guard let record = selectedLibraryRecord else { return false }
+        return MeetingRecordMetadata.isTranscriptRecord(record)
+    }
+
+    var isSelectedAudioTranscriptActionDisabled: Bool {
+        guard let record = selectedLibraryRecord else { return true }
+        return audioTranscriptQueuedRecordIDs.contains(record.id) || audioTranscriptActiveRecordID == record.id
+    }
+
+    func performSelectedAudioTranscriptAction() {
+        guard let record = selectedLibraryRecord, record.sourceKind == .audio else { return }
+        if MeetingRecordMetadata.linkedTranscriptRecordID(in: record) != nil {
+            openLinkedTranscript(for: record)
+        } else {
+            enqueueAudioTranscription(recordID: record.id)
+        }
+    }
+
+    func openSelectedTranscriptSourceAudio() {
+        guard let transcriptRecord = selectedLibraryRecord,
+              MeetingRecordMetadata.isTranscriptRecord(transcriptRecord),
+              let audioTranscriptService
+        else { return }
+
+        libraryErrorMessage = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                guard let audioRecord = try await audioTranscriptService.sourceAudio(forTranscriptRecordID: transcriptRecord.id) else {
+                    self.libraryErrorMessage = self.localizedPreviewLabel(
+                        chinese: "对应的原录音已不存在。",
+                        english: "The source audio is no longer available."
+                    )
+                    return
+                }
+                if !self.libraryRecords.contains(where: { $0.id == audioRecord.id }) {
+                    self.libraryRecords.insert(audioRecord, at: 0)
+                }
+                self.selectedLibraryRecord = audioRecord
+            } catch {
+                self.libraryErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    private func enqueueAudioTranscription(recordID: UUID) {
+        guard let audioTranscriptService else {
+            let error = startupIntegrationError(fallback: "Audio transcript service")
+            libraryErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return
+        }
+        guard !audioTranscriptQueuedRecordIDs.contains(recordID),
+              audioTranscriptActiveRecordID != recordID
+        else { return }
+
+        libraryErrorMessage = nil
+        audioTranscriptQueue.append(recordID)
+        audioTranscriptQueuedRecordIDs.insert(recordID)
+        startAudioTranscriptQueueIfNeeded(using: audioTranscriptService)
+    }
+
+    private func startAudioTranscriptQueueIfNeeded(using service: AudioTranscriptService) {
+        guard audioTranscriptQueueProcessorTask == nil else { return }
+        audioTranscriptQueueProcessorTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.audioTranscriptActiveRecordID = nil
+                self.audioTranscriptQueueProcessorTask = nil
+            }
+
+            while !self.audioTranscriptQueue.isEmpty {
+                guard !Task.isCancelled else { break }
+                let recordID = self.audioTranscriptQueue.removeFirst()
+                self.audioTranscriptQueuedRecordIDs.remove(recordID)
+                self.audioTranscriptActiveRecordID = recordID
+
+                do {
+                    _ = try await service.transcribeAudioRecord(id: recordID) { update in
+                        CasebaseDebugLogger.log(
+                            "post transcription progress recordID=\(recordID.uuidString) phase=\(update.phase.rawValue) detail=\(update.detailText ?? "-")"
+                        )
+                    }
+                    if let libraryService = self.libraryService {
+                        await self.reloadLibraryRecords(using: libraryService)
+                    }
+                    self.libraryErrorMessage = nil
+                } catch {
+                    if !Task.isCancelled, self.selectedLibraryRecord?.id == recordID {
+                        self.libraryErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    }
+                }
+                self.audioTranscriptActiveRecordID = nil
+            }
+        }
+    }
+
+    private func openLinkedTranscript(for audioRecord: ImportRecord) {
+        guard let audioTranscriptService else { return }
+        libraryErrorMessage = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                guard let transcript = try await audioTranscriptService.linkedTranscript(forAudioRecordID: audioRecord.id) else {
+                    var refreshedAudio = audioRecord
+                    refreshedAudio.structuredData.removeValue(forKey: MeetingRecordMetadata.linkedTranscriptRecordIDKey)
+                    self.selectedLibraryRecord = refreshedAudio
+                    self.libraryErrorMessage = self.localizedPreviewLabel(
+                        chinese: "关联的逐字稿已不存在，可以重新转写。",
+                        english: "The linked transcript no longer exists. You can transcribe again."
+                    )
+                    return
+                }
+                if !self.libraryRecords.contains(where: { $0.id == transcript.id }) {
+                    self.libraryRecords.insert(transcript, at: 0)
+                }
+                self.selectedLibraryRecord = transcript
             } catch {
                 self.libraryErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
@@ -2241,6 +2829,11 @@ final class NotchViewModel: ObservableObject {
     }
 
     func clear() {
+        audioTranscriptQueueProcessorTask?.cancel()
+        audioTranscriptQueueProcessorTask = nil
+        audioTranscriptQueue.removeAll()
+        audioTranscriptQueuedRecordIDs.removeAll()
+        audioTranscriptActiveRecordID = nil
         queueProcessorTask?.cancel()
         intakeFeedbackTask?.cancel()
         finalSuccessTask?.cancel()
@@ -2303,6 +2896,14 @@ final class NotchViewModel: ObservableObject {
         guard let libraryService else { return }
         guard surfaceState == .library || surfaceState == .libraryDetail else { return }
 
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reloadLibraryRecords(using: libraryService)
+        }
+    }
+
+    func handleRecordsChanged() {
+        guard let libraryService else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.reloadLibraryRecords(using: libraryService)
@@ -3016,6 +3617,36 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
+    private func reloadTodos(using service: TodoService) async {
+        isTodoLoading = true
+        defer { isTodoLoading = false }
+
+        do {
+            let page = try await service.listTodos(
+                filters: TodoFilters(),
+                limit: TodoPaging.maximumLimit,
+                offset: 0
+            )
+            todos = page.items
+            todoErrorMessage = nil
+
+            if let selectedTodoID, !todos.contains(where: { $0.id == selectedTodoID }) {
+                self.selectedTodoID = nil
+                if surfaceState == .todoEditor || surfaceState == .todoDeleteConfirmation {
+                    surfaceState = .todos
+                }
+            }
+        } catch {
+            todoErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private static func defaultTodoDueDate() -> Date {
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: Date()) ?? Date().addingTimeInterval(86_400)
+        return calendar.date(bySettingHour: 18, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+    }
+
     private func updateTaskSupplement(taskID: UUID, value: String) {
         updateTask(taskID) { task in
             task.supplementDraft = value
@@ -3656,6 +4287,10 @@ final class NotchViewModel: ObservableObject {
             return libraryPreferredPanelHeight
         case .libraryDetail:
             return libraryDetailPreferredPanelHeight
+        case .todos:
+            return todoPreferredPanelHeight
+        case .todoEditor:
+            return todoEditorPreferredPanelHeight
         case .savedPreview:
             return savedPreviewPreferredPanelHeight
         case .search:
@@ -3679,6 +4314,10 @@ final class NotchViewModel: ObservableObject {
             return libraryMaxPanelHeight
         case .libraryDetail:
             return libraryDetailMaxPanelHeight
+        case .todos:
+            return todoMaxPanelHeight
+        case .todoEditor:
+            return todoEditorMaxPanelHeight
         case .savedPreview:
             return savedPreviewMaxPanelHeight
         case .search:

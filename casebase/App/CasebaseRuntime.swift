@@ -6,6 +6,8 @@ struct CasebaseRuntime {
     let configuration: CasebaseConfiguration
     let knowledgeStore: KnowledgeStore
     let libraryService: LibraryService
+    let todoService: TodoService
+    let audioTranscriptService: AudioTranscriptService
     let importCoordinator: ImportCoordinator
     let assetOrganizationService: AssetOrganizationService
     let answerService: AnswerService
@@ -32,6 +34,12 @@ struct CasebaseRuntime {
             knowledgeStore: knowledgeStore,
             visibleShortcutService: visibleShortcutService
         )
+        let taskIntelligenceService = DeepSeekTaskIntelligenceService(configuration: configuration)
+        let todoService = CasebaseTodoService(
+            knowledgeStore: knowledgeStore,
+            breakdownProvider: taskIntelligenceService
+        )
+        let localMeetingTranscriber = try? OMLXAudioTranscriber()
         let importCoordinator = CasebaseImportCoordinator(
             extractor: extractor,
             knowledgeStore: knowledgeStore,
@@ -39,7 +47,15 @@ struct CasebaseRuntime {
             assetVault: assetVault,
             maximumImportFileBytes: configuration.ai.maxImportFileBytes,
             visibleShortcutService: visibleShortcutService,
-            meetingTranscriber: try? OMLXAudioTranscriber()
+            meetingTranscriber: localMeetingTranscriber,
+            actionItemExtractor: taskIntelligenceService
+        )
+        let audioTranscriptService = CasebaseAudioTranscriptService(
+            knowledgeStore: knowledgeStore,
+            assetVault: assetVault,
+            transcriber: localMeetingTranscriber,
+            visibleShortcutService: visibleShortcutService,
+            actionItemExtractor: taskIntelligenceService
         )
         let answerService = KnowledgeBackedAnswerService(
             knowledgeStore: knowledgeStore,
@@ -59,6 +75,8 @@ struct CasebaseRuntime {
             configuration: configuration,
             knowledgeStore: knowledgeStore,
             libraryService: libraryService,
+            todoService: todoService,
+            audioTranscriptService: audioTranscriptService,
             importCoordinator: importCoordinator,
             assetOrganizationService: importCoordinator,
             answerService: answerService,

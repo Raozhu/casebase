@@ -121,6 +121,16 @@ final class SQLiteDatabase {
         }
     }
 
+    func bind(_ value: Double?, at index: Int32, in statement: OpaquePointer?) throws {
+        if let value {
+            try bind(value, at: index, in: statement)
+        } else {
+            guard sqlite3_bind_null(statement, index) == SQLITE_OK else {
+                throw CasebaseError.storageFailed(lastErrorMessage())
+            }
+        }
+    }
+
     func bind(_ value: UUID, at index: Int32, in statement: OpaquePointer?) throws {
         try bind(value.uuidString.lowercased(), at: index, in: statement)
     }
@@ -138,6 +148,10 @@ final class SQLiteDatabase {
 
     func int(at index: Int32, in statement: OpaquePointer?) -> Int {
         Int(sqlite3_column_int64(statement, index))
+    }
+
+    func isNull(at index: Int32, in statement: OpaquePointer?) -> Bool {
+        sqlite3_column_type(statement, index) == SQLITE_NULL
     }
 
     private func lastErrorMessage() -> String {
