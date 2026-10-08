@@ -3,16 +3,22 @@ import Combine
 import SwiftUI
 import WebKit
 
-/// Borderless dark panel under the notch that hosts the 12 Knights web UI in a WKWebView.
+/// Dark window under the notch that hosts the 12 Knights web UI in a WKWebView.
 @MainActor
 final class RoundTablePanelController: NSObject {
     static let shared = RoundTablePanelController()
 
+    private static let frameAutosaveName = "casebase.roundTable.window"
+    /// How far the window travels toward the notch while sliding in/out.
+    private static let slideDistance: CGFloat = 28
+
     private let knights = CasebaseKnightsService.shared
     private let webView: WKWebView
     private var panel: RoundTablePanel?
+    private var placeholderView: NSView?
     private var statusObserver: AnyCancellable?
     private var needsLoad = true
+    private var isAnimatingOut = false
 
     private override init() {
         let configuration = WKWebViewConfiguration()
@@ -35,15 +41,58 @@ final class RoundTablePanelController: NSObject {
             }
     }
 
+    /// Clicking the round-table entry again while the window is in front tucks it away.
+    func toggle() {
+        if let panel, panel.isVisible, panel.isKeyWindow, !isAnimatingOut {
+            hide()
+        } else {
+            show()
+        }
+    }
+
     func show() {
         let panel = panel ?? makePanel()
         loadIfNeeded()
+        updateContentVisibility()
         NSApp.activate(ignoringOtherApps: true)
+
+        guard !panel.isVisible || isAnimatingOut else {
+            panel.makeKeyAndOrderFront(nil)
+            return
+        }
+        isAnimatingOut = false
+        // First launch uses defaultFrame(); afterwards the autosaved frame the user left it at.
+        let target = panel.frame
+        panel.setFrame(target.offsetBy(dx: 0, dy: Self.slideDistance), display: false)
+        panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrame(target, display: true)
+            panel.animator().alphaValue = 1
+        }
     }
 
     func hide() {
-        panel?.orderOut(nil)
+        guard let panel, panel.isVisible, !isAnimatingOut else { return }
+        isAnimatingOut = true
+        let resting = panel.frame
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().setFrame(resting.offsetBy(dx: 0, dy: Self.slideDistance), display: true)
+            panel.animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.isAnimatingOut else { return }
+                self.isAnimatingOut = false
+                panel.orderOut(nil)
+                // Restore the resting frame so position/size persist (and autosave) correctly.
+                panel.setFrame(resting, display: false)
+                panel.alphaValue = 1
+            }
+        }
     }
 
     func reload() {
@@ -69,6 +118,13 @@ final class RoundTablePanelController: NSObject {
             // The server went away (restart / failure); load a fresh page once it is back.
             needsLoad = true
         }
+        updateContentVisibility(for: status)
+    }
+
+    private func updateContentVisibility(for status: KnightsStatus? = nil) {
+        let isRunning = (status ?? knights.status) == .running
+        webView.isHidden = !isRunning
+        placeholderView?.isHidden = isRunning
     }
 
     private func loadIfNeeded() {
@@ -78,41 +134,65 @@ final class RoundTablePanelController: NSObject {
     }
 
     private func makePanel() -> RoundTablePanel {
+        // A titled, opaque window with a hidden title bar: the system draws the rounded corners and
+        // shadow, so the web view is never masked/composited offscreen on every frame.
         let panel = RoundTablePanel(
-            contentRect: initialFrame(),
-            styleMask: [.borderless, .resizable],
+            contentRect: defaultFrame(),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            panel.standardWindowButton(button)?.isHidden = true
+        }
+        panel.backgroundColor = .black
         panel.isReleasedWhenClosed = false
-        panel.level = .normal
+        panel.animationBehavior = .none
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.minSize = NSSize(width: 640, height: 420)
         panel.onClose = { [weak self] in self?.hide() }
         panel.onReload = { [weak self] in self?.reload() }
+        panel.setFrameAutosaveName(Self.frameAutosaveName)
 
-        let rootView = RoundTablePanelView(
+        let header = NSHostingView(rootView: RoundTableHeaderView(
             knights: knights,
-            webView: webView,
             onReload: { [weak self] in self?.reload() },
             onOpenInBrowser: { [weak self] in self?.openInBrowser() },
             onClose: { [weak self] in self?.hide() }
-        )
-        let hostingView = NSHostingView(rootView: rootView)
-        hostingView.wantsLayer = true
-        hostingView.layer?.cornerRadius = RoundTablePalette.cornerRadius
-        hostingView.layer?.masksToBounds = true
-        panel.contentView = hostingView
+        ))
+        let placeholder = NSHostingView(rootView: RoundTablePlaceholderView(knights: knights))
+        placeholderView = placeholder
+
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = RoundTablePalette.pageBackground.cgColor
+        for view in [header, placeholder, webView] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: container.topAnchor),
+            header.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            header.heightAnchor.constraint(equalToConstant: RoundTablePalette.headerHeight),
+        ])
+        for view in [placeholder, webView] as [NSView] {
+            NSLayoutConstraint.activate([
+                view.topAnchor.constraint(equalTo: header.bottomAnchor),
+                view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            ])
+        }
+        panel.contentView = container
         self.panel = panel
         return panel
     }
 
     /// Centered horizontally on the screen under the mouse, just below the menu bar / notch.
-    private func initialFrame() -> NSRect {
+    private func defaultFrame() -> NSRect {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         guard let visible = screen?.visibleFrame else {
@@ -220,7 +300,7 @@ extension RoundTablePanelController: WKNavigationDelegate, WKUIDelegate {
 
 // MARK: - Panel
 
-final class RoundTablePanel: NSPanel {
+final class RoundTablePanel: NSWindow {
     var onClose: (() -> Void)?
     var onReload: (() -> Void)?
 
@@ -262,41 +342,20 @@ final class RoundTablePanel: NSPanel {
 // MARK: - SwiftUI chrome
 
 enum RoundTablePalette {
-    static let cornerRadius: CGFloat = 20
+    static let headerHeight: CGFloat = 44
     /// 12 Knights dark theme background (`--bg`), so the page and the chrome blend.
     static let pageBackground = NSColor(red: 0x26 / 255, green: 0x26 / 255, blue: 0x24 / 255, alpha: 1)
+    /// 12 Knights dark sidebar (`--side`), used for the header strip.
+    static let headerBackground = Color(red: 0x1F / 255, green: 0x1E / 255, blue: 0x1D / 255)
 }
 
-private struct RoundTablePanelView: View {
+private struct RoundTableHeaderView: View {
     @ObservedObject var knights: CasebaseKnightsService
-    let webView: WKWebView
     let onReload: () -> Void
     let onOpenInBrowser: () -> Void
     let onClose: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Rectangle()
-                .fill(Color.white.opacity(0.08))
-                .frame(height: 1)
-            ZStack {
-                Color(nsColor: RoundTablePalette.pageBackground)
-                RoundTableWebView(webView: webView)
-                    .opacity(knights.status == .running ? 1 : 0)
-                if knights.status != .running {
-                    placeholder
-                }
-            }
-        }
-        .background(Color.black)
-        .overlay {
-            RoundedRectangle(cornerRadius: RoundTablePalette.cornerRadius, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-        }
-    }
-
-    private var header: some View {
         HStack(spacing: 10) {
             Circle()
                 .fill(statusColor)
@@ -315,15 +374,35 @@ private struct RoundTablePanelView: View {
                 .disabled(knights.status != .running)
             RoundTableHeaderButton(icon: .open, helpText: "在浏览器打开", action: onOpenInBrowser)
                 .disabled(knights.status != .running)
-            RoundTableHeaderButton(icon: .cross, helpText: "关闭（⌘W）", action: onClose)
+            RoundTableHeaderButton(icon: .cross, helpText: "收起（⌘W）", action: onClose)
         }
         .padding(.horizontal, 16)
-        .frame(height: 44)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(WindowDragArea())
+        .background(RoundTablePalette.headerBackground)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 1)
+        }
     }
 
-    @ViewBuilder
-    private var placeholder: some View {
+    private var statusColor: Color {
+        switch knights.status {
+        case .running:
+            return Color(red: 0.36, green: 0.82, blue: 0.48)
+        case .starting, .idle:
+            return Color.white.opacity(0.45)
+        case .portConflict, .nodeMissing, .failed:
+            return Color(red: 0.93, green: 0.36, blue: 0.33)
+        }
+    }
+}
+
+private struct RoundTablePlaceholderView: View {
+    @ObservedObject var knights: CasebaseKnightsService
+
+    var body: some View {
         VStack(spacing: 14) {
             if let failure = knights.failureDescription {
                 NotchPixelDisplayIcon(icon: .warning, tone: .danger, size: 26)
@@ -345,17 +424,8 @@ private struct RoundTablePanelView: View {
             }
         }
         .padding(32)
-    }
-
-    private var statusColor: Color {
-        switch knights.status {
-        case .running:
-            return Color(red: 0.36, green: 0.82, blue: 0.48)
-        case .starting, .idle:
-            return Color.white.opacity(0.45)
-        case .portConflict, .nodeMissing, .failed:
-            return Color(red: 0.93, green: 0.36, blue: 0.33)
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: RoundTablePalette.pageBackground))
     }
 }
 
@@ -377,18 +447,15 @@ private struct RoundTableHeaderButton: View {
     }
 }
 
-private struct RoundTableWebView: NSViewRepresentable {
-    let webView: WKWebView
-
-    func makeNSView(context: Context) -> WKWebView { webView }
-    func updateNSView(_ nsView: WKWebView, context: Context) {}
-}
-
-/// Lets the header act as a title bar on the borderless panel.
+/// Lets the header act as a title bar.
 private struct WindowDragArea: NSViewRepresentable {
     final class DragView: NSView {
         override func mouseDown(with event: NSEvent) {
-            window?.performDrag(with: event)
+            if event.clickCount == 2 {
+                window?.zoom(nil)
+            } else {
+                window?.performDrag(with: event)
+            }
         }
     }
 

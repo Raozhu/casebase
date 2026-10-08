@@ -224,12 +224,12 @@ final class CasebaseKnightsService: ObservableObject {
 
     // MARK: - Round-table entry
 
-    /// Shows the round-table panel; starts the server first if it isn't running yet.
+    /// Shows (or tucks away) the round-table window; starts the server first if it isn't running yet.
     func openRoundTable() {
         if status == .idle {
             start()
         }
-        RoundTablePanelController.shared.show()
+        RoundTablePanelController.shared.toggle()
     }
 
     /// Manual retry after a failure; resets the auto-restart budget.
