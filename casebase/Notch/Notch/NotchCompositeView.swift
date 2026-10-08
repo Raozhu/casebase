@@ -70,8 +70,8 @@ struct NotchCompositeView: View {
                 onOpenMeeting: viewModel.openMeeting,
                 onOpenLibrary: viewModel.openLibrary,
                 onOpenTodos: viewModel.openTodos,
-                onOpenSettings: viewModel.openSettings,
                 onOpenSearch: viewModel.openSearch,
+                onOpenRoundTable: viewModel.openRoundTable,
                 showsSelectionCapturePrompt: !viewModel.selectionCaptureAuthorized,
                 onAuthorizeSelectionCapture: viewModel.openSelectionCaptureAccessibilitySettings,
                 showsScreenRecordingPrompt: !viewModel.screenshotCaptureAuthorized,
@@ -187,9 +187,9 @@ struct NotchCompositeView: View {
 
     private var showsChromeSettingsButton: Bool {
         switch viewModel.surfaceState {
-        case .idle, .hoverActions, .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .todos, .todoEditor, .todoDeleteConfirmation, .settings, .settingsAPIKeys, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .savedPreview, .search:
+        case .idle, .meeting, .meetingDiscardConfirmation, .meetingFinishConfirmation, .library, .libraryDetail, .todos, .todoEditor, .todoDeleteConfirmation, .settings, .settingsAPIKeys, .settingsDataResetConfirmation, .dropTarget, .intakeFeedback, .taskPanel, .savedPreview, .search:
             return false
-        case .ingesting, .answering, .answerReady, .error:
+        case .hoverActions, .ingesting, .answering, .answerReady, .error:
             return true
         }
     }

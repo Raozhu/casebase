@@ -1084,6 +1084,11 @@ final class NotchViewModel: ObservableObject {
         status = .expanded
     }
 
+    func openRoundTable() {
+        collapse()
+        CasebaseKnightsService.shared.openRoundTable()
+    }
+
     func collapse() {
         guard !shouldRemainExpanded else { return }
         if surfaceState == .hoverActions {

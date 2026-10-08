@@ -386,6 +386,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             existingRecord.fileName = organizedAsset.fileName
             existingRecord.mimeType = organizedAsset.mimeType
             existingRecord.sourceKind = organizedAsset.sourceKind
+            existingRecord.tags = mergingContextTags(existingRecord.tags, from: storedAsset.contextMetadata)
             existingRecord.registerReimport()
             try await measureImportStage(
                 "update-existing-record",
@@ -487,7 +488,7 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
             title: analysisContext.result.title,
             shortSummary: analysisContext.result.shortSummary,
             usefulSnippets: analysisContext.result.usefulSnippets,
-            tags: analysisContext.result.tags,
+            tags: mergingContextTags(analysisContext.result.tags, from: storedAsset.contextMetadata),
             structuredData: analysisContext.result.structuredData,
             searchText: analysisContext.result.searchText,
             userSupplement: nil,
@@ -2123,6 +2124,19 @@ actor CasebaseImportCoordinator: ImportCoordinator, AssetOrganizationService {
         }
 
         return host.contains(".")
+    }
+
+    /// Appends caller-supplied tags (`contextMetadata["tags"]`, comma separated) to the AI-generated ones.
+    private func mergingContextTags(_ tags: [String], from metadata: [String: String]) -> [String] {
+        let contextTags = (metadata["tags"] ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        var merged = tags
+        for tag in contextTags where !merged.contains(tag) {
+            merged.append(tag)
+        }
+        return merged
     }
 
     private func ensureReviewableRecordCanBeStored(

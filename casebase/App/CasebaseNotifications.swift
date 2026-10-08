@@ -6,4 +6,5 @@ extension Notification.Name {
     static let casebaseRecordsReorganized = Notification.Name("casebaseRecordsReorganized")
     static let casebaseRecordsChanged = Notification.Name("casebaseRecordsChanged")
     static let casebaseAPIKeyUpdated = Notification.Name("casebaseAPIKeyUpdated")
+    static let casebaseKnightsStatusChanged = Notification.Name("casebaseKnightsStatusChanged")
 }

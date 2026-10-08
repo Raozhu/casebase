@@ -123,6 +123,16 @@ struct CasebaseConfiguration: Hashable {
     }
 }
 
+enum CasebaseEnvironment {
+    /// `.env` values merged with the process environment (process wins).
+    static func resolved(
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> [String: String] {
+        resolvedCasebaseEnvironment(processEnvironment: processEnvironment, fileManager: fileManager)
+    }
+}
+
 private func resolvedCasebaseEnvironment(
     processEnvironment: [String: String],
     fileManager: FileManager

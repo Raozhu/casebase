@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var selectionCaptureController: GlobalSelectionCaptureController?
     private var screenshotCaptureController: GlobalScreenshotCaptureController?
     private var apiKeyUpdatedObserver: Any?
+    private var inboxWatcher: CasebaseInboxWatcher?
 
     func applicationDidFinishLaunching(_: Notification) {
         NotificationCenter.default.addObserver(
@@ -16,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
         NSApp.setActivationPolicy(.accessory)
+        CasebaseInboxWatcher.ensureDirectories(for: StorageConfiguration.load())
+        CasebaseKnightsService.shared.startIfEnabled()
         reloadRuntime()
         rebuildApplicationWindows()
         installAPIKeyUpdatedObserver()
@@ -37,6 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    func applicationWillTerminate(_: Notification) {
+        inboxWatcher?.stop()
+        CasebaseKnightsService.shared.stop()
+    }
+
     @objc func rebuildApplicationWindows() {
         for windowController in windowControllers {
             windowController.destroy()
@@ -51,10 +59,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     private func reloadRuntime() {
         CasebaseAPIKeyStore.shared.reload()
+        inboxWatcher?.stop()
+        inboxWatcher = nil
         do {
             runtime = try CasebaseRuntime.bootstrap()
             startupError = nil
             if let runtime {
+                let watcher = CasebaseInboxWatcher(
+                    storage: runtime.configuration.storage,
+                    importCoordinator: runtime.importCoordinator
+                )
+                watcher.start()
+                inboxWatcher = watcher
                 Task {
                     do {
                         let reorganizedCount = try await runtime.assetOrganizationService.organizeLegacyAssets()

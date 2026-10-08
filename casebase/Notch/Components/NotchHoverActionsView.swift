@@ -4,8 +4,8 @@ struct NotchHoverActionsView: View {
     let onOpenMeeting: () -> Void
     let onOpenLibrary: () -> Void
     let onOpenTodos: () -> Void
-    let onOpenSettings: () -> Void
     let onOpenSearch: () -> Void
+    let onOpenRoundTable: () -> Void
     let showsSelectionCapturePrompt: Bool
     let onAuthorizeSelectionCapture: () -> Void
     let showsScreenRecordingPrompt: Bool
@@ -13,6 +13,7 @@ struct NotchHoverActionsView: View {
     let showsAPIKeyPrompt: Bool
     let onOpenAPIKeySettings: () -> Void
     let isMeasuring: Bool
+    @ObservedObject private var knights = CasebaseKnightsService.shared
 
     @ViewBuilder
     var body: some View {
@@ -49,21 +50,9 @@ struct NotchHoverActionsView: View {
 
             HStack(spacing: 8) {
                 HoverActionButton(
-                    icon: .audio,
-                    helpText: CasebasePromptCatalog.ui.hoverActionMeetingTooltip,
-                    action: onOpenMeeting
-                )
-
-                HoverActionButton(
-                    icon: .gear,
-                    helpText: CasebasePromptCatalog.ui.hoverActionSettingsTooltip,
-                    action: onOpenSettings
-                )
-
-                HoverActionButton(
-                    icon: .check,
-                    helpText: CasebasePromptCatalog.ui.hoverActionTodoTooltip,
-                    action: onOpenTodos
+                    icon: .search,
+                    helpText: CasebasePromptCatalog.ui.hoverActionSearchTooltip,
+                    action: onOpenSearch
                 )
 
                 HoverActionButton(
@@ -73,16 +62,31 @@ struct NotchHoverActionsView: View {
                 )
 
                 HoverActionButton(
-                    icon: .search,
-                    helpText: CasebasePromptCatalog.ui.hoverActionSearchTooltip,
-                    action: onOpenSearch
+                    icon: .check,
+                    helpText: CasebasePromptCatalog.ui.hoverActionTodoTooltip,
+                    action: onOpenTodos
+                )
+
+                HoverActionButton(
+                    icon: .sword,
+                    helpText: CasebasePromptCatalog.language == .simplifiedChinese
+                        ? "圆桌 · 召集 AI 骑士"
+                        : "Round Table · summon the AI knights",
+                    statusDotColor: knightsStatusDotColor,
+                    action: onOpenRoundTable
                 )
             }
             .frame(maxWidth: .infinity)
 
-            Text(CasebasePromptCatalog.ui.hoverActionHint)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.56))
+            HStack(spacing: 10) {
+                MeetingShortcutButton(action: onOpenMeeting)
+
+                Spacer(minLength: 0)
+
+                Text(CasebasePromptCatalog.ui.hoverActionHint)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.56))
+            }
         }
 
         if isMeasuring {
@@ -91,6 +95,19 @@ struct NotchHoverActionsView: View {
         } else {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+    }
+
+    private var knightsStatusDotColor: Color? {
+        switch knights.status {
+        case .running:
+            return Color(red: 0.36, green: 0.82, blue: 0.48)
+        case .starting:
+            return Color.white.opacity(0.45)
+        case .portConflict, .nodeMissing, .failed:
+            return Color(red: 0.93, green: 0.36, blue: 0.33)
+        case .idle:
+            return nil
         }
     }
 
@@ -141,20 +158,19 @@ struct NotchHoverActionsView: View {
 private struct HoverActionButton: View {
     let icon: NotchPixelIcon
     let helpText: String
+    var statusDotColor: Color? = nil
     let action: () -> Void
 
     private var label: String {
         switch icon {
-        case .audio:
-            return CasebasePromptCatalog.language == .simplifiedChinese ? "会议" : "Meeting"
-        case .gear:
-            return CasebasePromptCatalog.language == .simplifiedChinese ? "设置" : "Settings"
         case .check:
             return CasebasePromptCatalog.language == .simplifiedChinese ? "待办" : "To-do"
         case .library:
             return CasebasePromptCatalog.language == .simplifiedChinese ? "数据" : "Library"
         case .search:
             return CasebasePromptCatalog.language == .simplifiedChinese ? "探索" : "Explore"
+        case .sword:
+            return CasebasePromptCatalog.language == .simplifiedChinese ? "圆桌" : "Round Table"
         default:
             return ""
         }
@@ -174,6 +190,14 @@ private struct HoverActionButton: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
+                .overlay(alignment: .topTrailing) {
+                    if let statusDotColor {
+                        Circle()
+                            .fill(statusDotColor)
+                            .frame(width: 6, height: 6)
+                            .padding(7)
+                    }
+                }
 
                 Text(label)
                     .font(.system(size: 10, weight: .medium))
@@ -186,5 +210,28 @@ private struct HoverActionButton: View {
         .frame(maxWidth: .infinity)
         .buttonStyle(.plain)
         .help(helpText)
+    }
+}
+
+private struct MeetingShortcutButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color(red: 0.93, green: 0.36, blue: 0.33))
+                    .frame(width: 6, height: 6)
+                Text(CasebasePromptCatalog.language == .simplifiedChinese ? "录会议" : "Record meeting")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.78))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(Color.white.opacity(0.06)))
+            .overlay { Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 1) }
+        }
+        .buttonStyle(.plain)
+        .help(CasebasePromptCatalog.ui.hoverActionMeetingTooltip)
     }
 }

@@ -80,6 +80,7 @@ enum NotchPixelIcon {
     case screen
     case box
     case reset
+    case sword
 
     var pattern: [String] {
         switch self {
@@ -389,6 +390,18 @@ enum NotchPixelIcon {
                 "1100011",
                 "1000001",
             ]
+        case .sword:
+            return [
+                "000000011",
+                "000000111",
+                "000001110",
+                "010011100",
+                "001111000",
+                "000110000",
+                "001010000",
+                "010001000",
+                "100000000",
+            ]
         }
     }
 }
@@ -657,7 +670,7 @@ private extension NotchPixelIcon {
                 pathData: "M3 22h18V8h-2V6h-2v2h-2V6h2V4h-2V2H3v20zm2-2V4h8v6h6v10H5z",
                 renderingMode: .fill
             )
-        case .pdf, .text, .audio, .warning, .question, .check, .cross, .hourglass, .open, .screen, .box:
+        case .pdf, .text, .audio, .warning, .question, .check, .cross, .hourglass, .open, .screen, .box, .sword:
             return nil
         }
     }
