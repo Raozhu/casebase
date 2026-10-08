@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 import WebKit
 
-/// Dark window under the notch that hosts the 12 Knights web UI in a WKWebView.
+/// Window under the notch that hosts the 12 Knights web UI in a WKWebView.
 @MainActor
 final class RoundTablePanelController: NSObject {
     static let shared = RoundTablePanelController()
@@ -13,10 +13,13 @@ final class RoundTablePanelController: NSObject {
     private static let slideDistance: CGFloat = 28
 
     private let knights = CasebaseKnightsService.shared
+    private let theme = RoundTableTheme()
     private let webView: WKWebView
     private var panel: RoundTablePanel?
+    private var container: NSView?
     private var placeholderView: NSView?
     private var statusObserver: AnyCancellable?
+    private var themeObserver: AnyCancellable?
     private var needsLoad = true
     private var isAnimatingOut = false
 
@@ -28,11 +31,26 @@ final class RoundTablePanelController: NSObject {
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         ))
+        // Report the page's light/dark theme so the native chrome follows it.
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: """
+            (function(){var r=document.documentElement,post=function(){try{window.webkit.messageHandlers.\(RoundTableTheme.messageName).postMessage(r.dataset.theme||'light')}catch(e){}};
+            post();new MutationObserver(post).observe(r,{attributes:true,attributeFilter:['data-theme']});})();
+            """,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
         webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.underPageBackgroundColor = RoundTablePalette.pageBackground
         super.init()
+        configuration.userContentController.add(WeakScriptMessageHandler(self), name: RoundTableTheme.messageName)
         webView.navigationDelegate = self
         webView.uiDelegate = self
+
+        themeObserver = theme.$isDark
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isDark in
+                self?.applyTheme(isDark: isDark)
+            }
 
         statusObserver = knights.$status
             .receive(on: DispatchQueue.main)
@@ -127,6 +145,14 @@ final class RoundTablePanelController: NSObject {
         placeholderView?.isHidden = isRunning
     }
 
+    private func applyTheme(isDark: Bool) {
+        let palette = RoundTablePalette(isDark: isDark)
+        webView.underPageBackgroundColor = palette.pageBackground
+        container?.layer?.backgroundColor = palette.pageBackground.cgColor
+        panel?.backgroundColor = palette.pageBackground
+        panel?.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+    }
+
     private func loadIfNeeded() {
         guard needsLoad, knights.status == .running else { return }
         needsLoad = false
@@ -147,7 +173,6 @@ final class RoundTablePanelController: NSObject {
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             panel.standardWindowButton(button)?.isHidden = true
         }
-        panel.backgroundColor = .black
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
@@ -158,16 +183,17 @@ final class RoundTablePanelController: NSObject {
 
         let header = NSHostingView(rootView: RoundTableHeaderView(
             knights: knights,
+            theme: theme,
             onReload: { [weak self] in self?.reload() },
             onOpenInBrowser: { [weak self] in self?.openInBrowser() },
             onClose: { [weak self] in self?.hide() }
         ))
-        let placeholder = NSHostingView(rootView: RoundTablePlaceholderView(knights: knights))
+        let placeholder = NSHostingView(rootView: RoundTablePlaceholderView(knights: knights, theme: theme))
         placeholderView = placeholder
 
         let container = NSView()
         container.wantsLayer = true
-        container.layer?.backgroundColor = RoundTablePalette.pageBackground.cgColor
+        self.container = container
         for view in [header, placeholder, webView] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
@@ -188,6 +214,7 @@ final class RoundTablePanelController: NSObject {
         }
         panel.contentView = container
         self.panel = panel
+        applyTheme(isDark: theme.isDark)
         return panel
     }
 
@@ -201,6 +228,46 @@ final class RoundTablePanelController: NSObject {
         let width = min(1040, visible.width - 80)
         let height = min(720, visible.height - 40)
         return NSRect(x: visible.midX - width / 2, y: visible.maxY - 12 - height, width: width, height: height)
+    }
+}
+
+// MARK: - Theme
+
+/// Light/dark state of the 12 Knights page, remembered so the chrome opens in the right colors.
+@MainActor
+final class RoundTableTheme: ObservableObject {
+    static let messageName = "casebaseTheme"
+    private static let defaultsKey = "casebase.roundTable.isDark"
+
+    @Published var isDark: Bool {
+        didSet { UserDefaults.standard.set(isDark, forKey: Self.defaultsKey) }
+    }
+
+    init() {
+        isDark = UserDefaults.standard.object(forKey: Self.defaultsKey) as? Bool ?? true
+    }
+}
+
+extension RoundTablePanelController: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == RoundTableTheme.messageName, let value = message.body as? String else { return }
+        let isDark = value == "dark"
+        if theme.isDark != isDark {
+            theme.isDark = isDark
+        }
+    }
+}
+
+/// WKUserContentController retains its handlers; this keeps it from retaining the controller.
+private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+
+    init(_ target: WKScriptMessageHandler) {
+        self.target = target
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        target?.userContentController(userContentController, didReceive: message)
     }
 }
 
@@ -341,50 +408,73 @@ final class RoundTablePanel: NSWindow {
 
 // MARK: - SwiftUI chrome
 
-enum RoundTablePalette {
+/// Colors mirror the 12 Knights CSS variables (`--bg`, `--side`, `--ink`, `--sub`, `--line`).
+struct RoundTablePalette {
     static let headerHeight: CGFloat = 44
-    /// 12 Knights dark theme background (`--bg`), so the page and the chrome blend.
-    static let pageBackground = NSColor(red: 0x26 / 255, green: 0x26 / 255, blue: 0x24 / 255, alpha: 1)
-    /// 12 Knights dark sidebar (`--side`), used for the header strip.
-    static let headerBackground = Color(red: 0x1F / 255, green: 0x1E / 255, blue: 0x1D / 255)
+
+    let isDark: Bool
+
+    var pageBackground: NSColor {
+        isDark ? NSColor(hex: 0x262624) : NSColor(hex: 0xFAF9F5)
+    }
+    var headerBackground: Color { Color(nsColor: isDark ? NSColor(hex: 0x1F1E1D) : NSColor(hex: 0xF5F4EE)) }
+    var ink: Color { Color(nsColor: isDark ? NSColor(hex: 0xF5F4EE) : NSColor(hex: 0x141413)) }
+    var sub: Color { Color(nsColor: isDark ? NSColor(hex: 0x9A988F) : NSColor(hex: 0x83827D)) }
+    var line: Color { isDark ? Color.white.opacity(0.08) : Color(nsColor: NSColor(hex: 0xE8E6DC)) }
+    var buttonFill: Color { isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.04) }
+    var buttonStroke: Color { isDark ? Color.white.opacity(0.1) : Color.black.opacity(0.08) }
+}
+
+private extension NSColor {
+    convenience init(hex: Int) {
+        self.init(
+            srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
+        )
+    }
 }
 
 private struct RoundTableHeaderView: View {
     @ObservedObject var knights: CasebaseKnightsService
+    @ObservedObject var theme: RoundTableTheme
     let onReload: () -> Void
     let onOpenInBrowser: () -> Void
     let onClose: () -> Void
 
     var body: some View {
+        let palette = RoundTablePalette(isDark: theme.isDark)
         HStack(spacing: 10) {
             Circle()
                 .fill(statusColor)
                 .frame(width: 7, height: 7)
-            NotchPixelIconView(icon: .sword, color: .white.opacity(0.86), size: 14)
+            NotchPixelIconView(icon: .sword, color: palette.ink.opacity(0.86), size: 14)
             Text("圆桌")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(palette.ink)
             Text("12 Knights")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.45))
+                .foregroundStyle(palette.sub)
 
             Spacer(minLength: 0)
 
-            RoundTableHeaderButton(icon: .refresh, helpText: "重新载入（⌘R）", action: onReload)
+            RoundTableHeaderButton(icon: .refresh, helpText: "重新载入（⌘R）", palette: palette, action: onReload)
                 .disabled(knights.status != .running)
-            RoundTableHeaderButton(icon: .open, helpText: "在浏览器打开", action: onOpenInBrowser)
+            RoundTableHeaderButton(icon: .open, helpText: "在浏览器打开", palette: palette, action: onOpenInBrowser)
                 .disabled(knights.status != .running)
-            RoundTableHeaderButton(icon: .cross, helpText: "收起（⌘W）", action: onClose)
+            RoundTableHeaderButton(icon: .cross, helpText: "收起（⌘W）", palette: palette, action: onClose)
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(WindowDragArea())
-        .background(RoundTablePalette.headerBackground)
+        .background(palette.headerBackground)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(Color.white.opacity(0.08))
+                .fill(palette.line)
                 .frame(height: 1)
         }
+        .animation(.easeOut(duration: 0.25), value: theme.isDark)
     }
 
     private var statusColor: Color {
@@ -392,7 +482,7 @@ private struct RoundTableHeaderView: View {
         case .running:
             return Color(red: 0.36, green: 0.82, blue: 0.48)
         case .starting, .idle:
-            return Color.white.opacity(0.45)
+            return Color.gray.opacity(0.7)
         case .portConflict, .nodeMissing, .failed:
             return Color(red: 0.93, green: 0.36, blue: 0.33)
         }
@@ -401,14 +491,16 @@ private struct RoundTableHeaderView: View {
 
 private struct RoundTablePlaceholderView: View {
     @ObservedObject var knights: CasebaseKnightsService
+    @ObservedObject var theme: RoundTableTheme
 
     var body: some View {
+        let palette = RoundTablePalette(isDark: theme.isDark)
         VStack(spacing: 14) {
             if let failure = knights.failureDescription {
                 NotchPixelDisplayIcon(icon: .warning, tone: .danger, size: 26)
                 Text(failure)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.82))
+                    .foregroundStyle(palette.ink.opacity(0.82))
                     .multilineTextAlignment(.center)
                 HStack(spacing: 10) {
                     Button("重试", action: knights.retry)
@@ -417,30 +509,31 @@ private struct RoundTablePlaceholderView: View {
                         .buttonStyle(NotchActionButtonStyle(prominent: false))
                 }
             } else {
-                NotchPixelDisplayIcon(icon: .hourglass, tone: .neutral, size: 26)
+                NotchPixelIconView(icon: .hourglass, color: palette.sub, size: 26)
                 Text("圆桌启动中…")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.72))
+                    .foregroundStyle(palette.sub)
             }
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: RoundTablePalette.pageBackground))
+        .background(Color(nsColor: palette.pageBackground))
     }
 }
 
 private struct RoundTableHeaderButton: View {
     let icon: NotchPixelIcon
     let helpText: String
+    let palette: RoundTablePalette
     let action: () -> Void
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
-            NotchPixelIconView(icon: icon, color: .white.opacity(isEnabled ? 0.8 : 0.3), size: 12)
+            NotchPixelIconView(icon: icon, color: palette.ink.opacity(isEnabled ? 0.75 : 0.25), size: 12)
                 .frame(width: 28, height: 28)
-                .background(Circle().fill(Color.white.opacity(0.08)))
-                .overlay { Circle().strokeBorder(Color.white.opacity(0.1), lineWidth: 1) }
+                .background(Circle().fill(palette.buttonFill))
+                .overlay { Circle().strokeBorder(palette.buttonStroke, lineWidth: 1) }
         }
         .buttonStyle(.plain)
         .help(helpText)
