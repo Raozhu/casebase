@@ -21,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CasebaseInboxWatcher.ensureDirectories(for: StorageConfiguration.load())
         CasebaseKnightsService.shared.startIfEnabled()
         KnightsActivityCenter.shared.start()
+        #if DEBUG
+        CasebaseDebugProbe.install()
+        #endif
         reloadRuntime()
         rebuildApplicationWindows()
         installAPIKeyUpdatedObserver()

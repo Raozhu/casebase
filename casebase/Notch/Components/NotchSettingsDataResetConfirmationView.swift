@@ -26,7 +26,10 @@ struct NotchSettingsDataResetConfirmationView: View {
                 .foregroundStyle(Color.white.opacity(0.72))
                 .fixedSize(horizontal: false, vertical: true)
 
-            if !isMeasuring {
+            // Keep a zero-height slot while measuring so the stack spacing matches the live layout.
+            if isMeasuring {
+                Color.clear.frame(height: 0)
+            } else {
                 Spacer(minLength: 0)
             }
 
@@ -75,6 +78,7 @@ struct NotchSettingsDataResetConfirmationView: View {
         .fixedSize(horizontal: false, vertical: true)
 
         let hostingView = NSHostingView(rootView: rootView)
-        return ceil(hostingView.fittingSize.height + 40)
+        // 40pt panel padding + 14pt spacing below the (empty) chrome row in NotchCompositeView.
+        return ceil(hostingView.fittingSize.height + 54)
     }
 }

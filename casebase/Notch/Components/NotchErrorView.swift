@@ -44,7 +44,10 @@ struct NotchErrorView: View {
                     .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
             }
 
-            if !isMeasuring {
+            // Keep a zero-height slot while measuring so the stack spacing matches the live layout.
+            if isMeasuring {
+                Color.clear.frame(height: 0)
+            } else {
                 Spacer(minLength: 0)
             }
 

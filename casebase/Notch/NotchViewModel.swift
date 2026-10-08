@@ -54,7 +54,7 @@ final class NotchViewModel: ObservableObject {
     let hoverExpandedPanelSize = CGSize(width: 420, height: 150)
     let hoverExpandedPanelUnauthorizedMinHeight: CGFloat = 176
     let maxAdaptiveExpandedPanelHeight: CGFloat = 640
-    let meetingPreferredPanelHeight: CGFloat = 312
+    let meetingPreferredPanelHeight: CGFloat = 361
     let meetingMaxPanelHeight: CGFloat = 408
     let libraryPreferredPanelHeight: CGFloat = 384
     let libraryMaxPanelHeight: CGFloat = 456
@@ -177,6 +177,7 @@ final class NotchViewModel: ObservableObject {
     private var restoredSurfaceStateBeforeSettings: CasebaseSurfaceState = .idle
     private var restoredStatusBeforeSettings: Status = .collapsed
     private var restoredPinnedStateBeforeSettings = false
+    private var hoverActionsPanelHeightCache: [String: CGFloat] = [:]
     private var restoredSurfaceStateBeforeLibrary: CasebaseSurfaceState = .hoverActions
     private var restoredStatusBeforeLibrary: Status = .expanded
     private var restoredPinnedStateBeforeLibrary = false
@@ -204,7 +205,9 @@ final class NotchViewModel: ObservableObject {
     private var answerThinkingPlaceholderTask: Task<Void, Never>?
     private var finalSuccessVisible = false
     private var transientResultRailVisible = false
-    private var measuredExpandedContentHeights: [CasebaseSurfaceState: CGFloat] = [:]
+    /// Published so the panel resizes as soon as the live measurement lands; otherwise the first open
+    /// of a page stayed at its (too small) estimate until the next time it was opened.
+    @Published private var measuredExpandedContentHeights: [CasebaseSurfaceState: CGFloat] = [:]
     private var meetingRecorderCancellables: Set<AnyCancellable> = []
     private var apiKeyStoreCancellables: Set<AnyCancellable> = []
     private let searchConversationStoreFileName = "explore_conversations.json"
@@ -1067,7 +1070,7 @@ final class NotchViewModel: ObservableObject {
     func updateMeasuredExpandedContentHeight(_ height: CGFloat, for state: CasebaseSurfaceState) {
         guard state.usesAdaptiveExpandedHeight else { return }
         let normalizedHeight = ceil(height)
-        guard normalizedHeight > 0 else { return }
+        guard normalizedHeight > 0, measuredExpandedContentHeights[state] != normalizedHeight else { return }
         measuredExpandedContentHeights[state] = normalizedHeight
     }
 
@@ -1115,6 +1118,15 @@ final class NotchViewModel: ObservableObject {
             }
         }
     }
+
+    #if DEBUG
+    /// Debug probe only: shows the hover panel pinned open regardless of the mouse.
+    func debugShowHoverActions() {
+        isPinnedExpanded = true
+        surfaceState = .hoverActions
+        status = .expanded
+    }
+    #endif
 
     func collapse() {
         guard !shouldRemainExpanded else { return }
@@ -4309,9 +4321,7 @@ final class NotchViewModel: ObservableObject {
     private func preferredAdaptiveExpandedHeight(for state: CasebaseSurfaceState, minimum: CGFloat) -> CGFloat {
         switch state {
         case .hoverActions:
-            return hasHoverActionPrompt
-                ? hoverExpandedPanelUnauthorizedMinHeight
-                : hoverExpandedPanelSize.height
+            return hoverActionsPreferredPanelHeight
         case .settingsAPIKeys:
             return NotchAPIKeySettingsView.measuredContentHeight()
         case .meeting:
@@ -4333,6 +4343,23 @@ final class NotchViewModel: ObservableObject {
         default:
             return minimum
         }
+    }
+
+    /// Pre-measured per prompt combination; the hidden live measurement only exists once the panel is shown.
+    private var hoverActionsPreferredPanelHeight: CGFloat {
+        let key = [!selectionCaptureAuthorized, !screenshotCaptureAuthorized, !apiKeyConfigured]
+            .map { $0 ? "1" : "0" }.joined()
+        if let cached = hoverActionsPanelHeightCache[key] {
+            return cached
+        }
+        let height = NotchHoverActionsView.measuredPanelHeight(
+            showsSelectionCapturePrompt: !selectionCaptureAuthorized,
+            showsScreenRecordingPrompt: !screenshotCaptureAuthorized,
+            showsAPIKeyPrompt: !apiKeyConfigured,
+            panelWidth: hoverExpandedPanelSize.width
+        )
+        hoverActionsPanelHeightCache[key] = height
+        return height
     }
 
     private var hasHoverActionPrompt: Bool {

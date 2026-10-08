@@ -225,6 +225,8 @@ final class RoundTablePanelController: NSObject {
         ))
         let placeholder = NSHostingView(rootView: RoundTablePlaceholderView(knights: knights, theme: theme))
         placeholderView = placeholder
+        header.safeAreaRegions = []
+        placeholder.safeAreaRegions = []
 
         let container = NSView()
         container.wantsLayer = true
@@ -506,6 +508,9 @@ private struct RoundTableHeaderView: View {
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The hidden system title bar still reserves a 28pt safe area that pushed this row down
+        // under the web view; the header *is* the title bar, so lay it out edge to edge.
+        .ignoresSafeArea()
         .background(WindowDragArea())
         .background(palette.headerBackground)
         .overlay(alignment: .bottom) {
@@ -557,6 +562,7 @@ private struct RoundTablePlaceholderView: View {
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: palette.pageBackground))
+        .ignoresSafeArea()
     }
 }
 

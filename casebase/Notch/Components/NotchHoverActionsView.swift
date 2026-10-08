@@ -92,6 +92,8 @@ struct NotchHoverActionsView: View {
                 Text(CasebasePromptCatalog.ui.hoverActionHint)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.56))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
 
@@ -102,6 +104,35 @@ struct NotchHoverActionsView: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
+    }
+
+    /// Panel height before the live measurement arrives, so the first open isn't clipped.
+    /// Mirrors NotchCompositeView: 20pt padding, the 32pt settings row and 14pt spacing.
+    static func measuredPanelHeight(
+        showsSelectionCapturePrompt: Bool,
+        showsScreenRecordingPrompt: Bool,
+        showsAPIKeyPrompt: Bool,
+        panelWidth: CGFloat
+    ) -> CGFloat {
+        let rootView = NotchHoverActionsView(
+            onOpenMeeting: {},
+            onOpenLibrary: {},
+            onOpenTodos: {},
+            onOpenSearch: {},
+            onOpenRoundTable: {},
+            showsSelectionCapturePrompt: showsSelectionCapturePrompt,
+            onAuthorizeSelectionCapture: {},
+            showsScreenRecordingPrompt: showsScreenRecordingPrompt,
+            onAuthorizeScreenRecording: {},
+            showsAPIKeyPrompt: showsAPIKeyPrompt,
+            onOpenAPIKeySettings: {},
+            isMeasuring: true
+        )
+        .frame(width: panelWidth - 4 - 40, alignment: .topLeading)
+        .fixedSize(horizontal: false, vertical: true)
+
+        let hostingView = NSHostingView(rootView: rootView)
+        return ceil(hostingView.fittingSize.height + 40 + 32 + 14)
     }
 
     private var knightsStatusDotColor: Color? {
@@ -237,16 +268,21 @@ private struct MeetingShortcutButton: View {
                 Circle()
                     .fill(Color(red: 0.93, green: 0.36, blue: 0.33))
                     .frame(width: 6, height: 6)
-                Text(CasebasePromptCatalog.language == .simplifiedChinese ? "录会议" : "Record meeting")
+                Text(CasebasePromptCatalog.language == .simplifiedChinese ? "录音" : "Record")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.78))
+                    .lineLimit(1)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(Capsule().fill(Color.white.opacity(0.06)))
             .overlay { Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 1) }
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(CasebasePromptCatalog.ui.hoverActionMeetingTooltip)
+        // Never let the hint text squeeze the capsule (that flattened its rounded ends).
+        .fixedSize()
+        .layoutPriority(1)
+        .help(CasebasePromptCatalog.language == .simplifiedChinese ? "开始录音（会议、访谈都可以）" : "Start a recording")
     }
 }

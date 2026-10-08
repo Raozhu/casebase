@@ -37,6 +37,7 @@ final class CasebaseKnightsService: ObservableObject {
     private var startTask: Task<Void, Never>?
     private var restartTask: Task<Void, Never>?
     private var restartTimestamps: [Date] = []
+    private var watchdogTask: Task<Void, Never>?
 
     private static let readyTimeout: TimeInterval = 20
     private static let restartWindow: TimeInterval = 300
@@ -84,6 +85,7 @@ final class CasebaseKnightsService: ObservableObject {
         isStopping = true
         startTask?.cancel()
         restartTask?.cancel()
+        watchdogTask?.cancel()
         guard owned, let process, process.isRunning else { return }
 
         let pid = process.processIdentifier
@@ -105,6 +107,7 @@ final class CasebaseKnightsService: ObservableObject {
             owned = false
             log("found an existing 12 Knights on port \(port), reusing it")
             status = .running
+            watchReusedInstance()
             return
         case .otherService:
             log("port \(port) is used by another service")
@@ -150,6 +153,30 @@ final class CasebaseKnightsService: ObservableObject {
         log("not ready after \(Int(Self.readyTimeout))s, terminating pid=\(launched.processIdentifier)")
         launched.terminate()
         status = .failed("启动超时，看日志")
+    }
+
+    /// A reused server has no termination handler (it may even be one left behind by a previous
+    /// casebase that is about to exit), so poll it and take over with our own process when it goes away.
+    private func watchReusedInstance() {
+        watchdogTask?.cancel()
+        watchdogTask = Task { [weak self] in
+            var failures = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self, !Task.isCancelled, !self.isStopping, !self.owned, self.status == .running else { return }
+                if await KnightsProcessSupport.probeHealth(url: self.healthURL) == .knights {
+                    failures = 0
+                    continue
+                }
+                failures += 1
+                guard failures >= 2 else { continue }
+                self.log("reused 12 Knights on port \(self.port) stopped responding, starting our own")
+                self.watchdogTask = nil
+                self.status = .idle
+                self.start()
+                return
+            }
+        }
     }
 
     private func launch(nodeURL: URL, path: String) throws -> Process {

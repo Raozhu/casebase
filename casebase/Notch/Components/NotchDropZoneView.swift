@@ -15,7 +15,10 @@ struct NotchDropZoneView: View {
     @ViewBuilder
     var body: some View {
         let content = VStack(spacing: 12) {
-            if !isMeasuring {
+            // Keep a zero-height slot while measuring so the stack spacing matches the live layout.
+            if isMeasuring {
+                Color.clear.frame(height: 0)
+            } else {
                 Spacer(minLength: 0)
             }
 
@@ -51,7 +54,10 @@ struct NotchDropZoneView: View {
                     .foregroundStyle(Color.white.opacity(0.56))
             }
 
-            if !isMeasuring {
+            // Keep a zero-height slot while measuring so the stack spacing matches the live layout.
+            if isMeasuring {
+                Color.clear.frame(height: 0)
+            } else {
                 Spacer(minLength: 0)
             }
         }

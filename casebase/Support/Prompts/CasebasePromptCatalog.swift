@@ -135,8 +135,8 @@ enum CasebasePromptCatalog {
 
         var hoverActionMeetingTooltip: String {
             switch language {
-            case .simplifiedChinese: return "会议"
-            case .english: return "Meeting"
+            case .simplifiedChinese: return "录音"
+            case .english: return "Record"
             }
         }
 
@@ -626,15 +626,15 @@ enum CasebasePromptCatalog {
 
         var meetingTitle: String {
             switch language {
-            case .simplifiedChinese: return "会议"
-            case .english: return "Meeting"
+            case .simplifiedChinese: return "录音"
+            case .english: return "Recording"
             }
         }
 
         var meetingDraftTitle: String {
             switch language {
-            case .simplifiedChinese: return "开始一场会议录音"
-            case .english: return "Start a meeting recording"
+            case .simplifiedChinese: return "开始录音"
+            case .english: return "Start a recording"
             }
         }
 

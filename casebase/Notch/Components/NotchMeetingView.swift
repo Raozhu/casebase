@@ -59,7 +59,10 @@ struct NotchMeetingView: View {
             participantCard
             topicCard
 
-            if !isMeasuring {
+            // Keep a zero-height slot while measuring so the stack spacing matches the live layout.
+            if isMeasuring {
+                Color.clear.frame(height: 0)
+            } else {
                 Spacer(minLength: 0)
             }
 
@@ -90,7 +93,10 @@ struct NotchMeetingView: View {
 
             infoCard
 
-            if !isMeasuring {
+            // Keep a zero-height slot while measuring so the stack spacing matches the live layout.
+            if isMeasuring {
+                Color.clear.frame(height: 0)
+            } else {
                 Spacer(minLength: 0)
             }
 
