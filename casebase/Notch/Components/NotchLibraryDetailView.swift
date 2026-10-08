@@ -437,6 +437,19 @@ struct NotchLibraryDetailView: View {
             )
             .frame(width: LibraryActionTileButton.standardWidth)
 
+            LibraryActionTileButton(
+                icon: viewModel.isDiscussingInRoundTable ? .hourglass : .sword,
+                title: CasebasePromptCatalog.language == .simplifiedChinese
+                    ? (viewModel.isDiscussingInRoundTable ? "召集中…" : "带到圆桌")
+                    : (viewModel.isDiscussingInRoundTable ? "Opening…" : "Discuss"),
+                action: viewModel.discussSelectedLibraryRecordInRoundTable
+            )
+            .frame(width: LibraryActionTileButton.standardWidth)
+            .disabled(viewModel.isDiscussingInRoundTable)
+            .help(CasebasePromptCatalog.language == .simplifiedChinese
+                ? "开一张圆桌，让 AI 骑士带着这份资料讨论"
+                : "Open a round table with this record loaded")
+
             if viewModel.canShowSelectedAudioTranscriptAction {
                 LibraryActionTileButton(
                     icon: .text,

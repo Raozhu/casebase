@@ -122,6 +122,17 @@ struct NotchSettingsView: View {
                         shortcutErrorMessage = nil
                     }
                 )
+
+                HotKeyRecorderRow(
+                    title: CasebasePromptCatalog.language == .simplifiedChinese ? "打开圆桌" : "Open Round Table",
+                    shortcut: hotKeyStore.roundTableShortcut,
+                    isRecording: recordingAction == .roundTable,
+                    onStartRecording: { beginRecording(.roundTable) },
+                    onReset: {
+                        hotKeyStore.resetShortcut(for: .roundTable)
+                        shortcutErrorMessage = nil
+                    }
+                )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenshotCaptureController: GlobalScreenshotCaptureController?
     private var apiKeyUpdatedObserver: Any?
     private var inboxWatcher: CasebaseInboxWatcher?
+    private var roundTableHotKeyController: GlobalRoundTableHotKeyController?
 
     func applicationDidFinishLaunching(_: Notification) {
         NotificationCenter.default.addObserver(
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         CasebaseInboxWatcher.ensureDirectories(for: StorageConfiguration.load())
         CasebaseKnightsService.shared.startIfEnabled()
+        KnightsActivityCenter.shared.start()
         reloadRuntime()
         rebuildApplicationWindows()
         installAPIKeyUpdatedObserver()
@@ -38,6 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.routeScreenshotCaptureError(error)
             }
         )
+        // Installed last: its handler passes other hotkeys on, the capture handlers do not.
+        roundTableHotKeyController = GlobalRoundTableHotKeyController {
+            CasebaseKnightsService.shared.openRoundTable()
+        }
     }
 
     func applicationWillTerminate(_: Notification) {

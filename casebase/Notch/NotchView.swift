@@ -12,6 +12,7 @@ private let supportedDropTypes = [
 
 struct NotchHoverView: View {
     @ObservedObject var viewModel: NotchViewModel
+    @ObservedObject private var knightsActivity = KnightsActivityCenter.shared
     @State private var isHovering = false
 
     var body: some View {
@@ -62,6 +63,21 @@ struct NotchHoverView: View {
                     showsShimmer: viewModel.taskRailShowsShimmer,
                     onTap: viewModel.handleTaskRailTap
                 )
+                .offset(y: viewModel.taskRailOffsetY)
+                .transition(.notchRailMorph)
+                .zIndex(1)
+            } else if let notice = knightsActivity.notice, viewModel.status == .collapsed {
+                // Round-table activity while its window is tucked away; ingest progress takes priority.
+                NotchTaskRailView(
+                    state: .success,
+                    text: notice.text,
+                    showsShimmer: false,
+                    tint: notice.needsAttention
+                        ? Color(red: 1.0, green: 0.73, blue: 0.22)
+                        : Color(red: 0.55, green: 0.72, blue: 1.0),
+                    onTap: { viewModel.openRoundTableNotice(notice) }
+                )
+                .id(notice.id)
                 .offset(y: viewModel.taskRailOffsetY)
                 .transition(.notchRailMorph)
                 .zIndex(1)
@@ -542,12 +558,14 @@ private extension AnyTransition {
 
 struct NotchView: View {
     @ObservedObject var viewModel: NotchViewModel
+    @ObservedObject private var knightsActivity = KnightsActivityCenter.shared
 
     var body: some View {
         NotchHoverView(viewModel: viewModel)
             .animation(notchAnimation, value: viewModel.status)
             .animation(notchAnimation, value: viewModel.surfaceState)
             .animation(notchAnimation, value: viewModel.showsTaskRail)
+            .animation(notchAnimation, value: knightsActivity.notice)
             .background(hoverHitArea)
             .preferredColorScheme(.dark)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

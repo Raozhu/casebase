@@ -122,6 +122,7 @@ final class NotchViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var libraryErrorMessage: String?
     @Published private(set) var noticeMessage: String?
+    @Published private(set) var isDiscussingInRoundTable = false
     @Published private(set) var isBusy = false {
         didSet {
             refreshAnswerThinkingPlaceholderState()
@@ -1089,6 +1090,32 @@ final class NotchViewModel: ObservableObject {
         CasebaseKnightsService.shared.openRoundTable()
     }
 
+    func openRoundTableNotice(_ notice: KnightsActivityCenter.Notice) {
+        KnightsActivityCenter.shared.clearNotice()
+        if CasebaseKnightsService.shared.status == .idle {
+            CasebaseKnightsService.shared.start()
+        }
+        RoundTablePanelController.shared.show(conversationID: notice.conversationID)
+    }
+
+    /// 「带到圆桌」：opens a round table with the selected record preloaded.
+    func discussSelectedLibraryRecordInRoundTable() {
+        guard let record = selectedLibraryRecord else { return }
+        isDiscussingInRoundTable = true
+        Task { @MainActor [weak self] in
+            defer { self?.isDiscussingInRoundTable = false }
+            do {
+                let conversationID = try await CasebaseKnightsService.shared.discuss(recordID: record.id)
+                self?.dismissPreservingState()
+                RoundTablePanelController.shared.show(conversationID: conversationID)
+            } catch {
+                let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                self?.dismissPreservingState()
+                KnightsActivityCenter.shared.post("没能带到圆桌：\(reason)")
+            }
+        }
+    }
+
     func collapse() {
         guard !shouldRemainExpanded else { return }
         if surfaceState == .hoverActions {
@@ -1440,6 +1467,7 @@ final class NotchViewModel: ObservableObject {
     }
 
     func openLibrary() {
+        KnightsActivityCenter.shared.markTeamMemoriesSeen()
         guard let libraryService else {
             presentImportError(startupIntegrationError(fallback: CasebasePromptCatalog.errors.libraryServiceName))
             return

@@ -4,6 +4,7 @@ struct NotchTaskRailView: View {
     let state: NotchTaskRailState
     let text: String
     let showsShimmer: Bool
+    var tint: Color? = nil
     let onTap: () -> Void
 
     var body: some View {
@@ -30,6 +31,9 @@ struct NotchTaskRailView: View {
     private var borderColor: Color { glowColor.opacity(0.18) }
 
     private var glowColor: Color {
+        if let tint {
+            return tint
+        }
         switch state {
         case .success:
             return Color(red: 0.41, green: 0.92, blue: 0.62)

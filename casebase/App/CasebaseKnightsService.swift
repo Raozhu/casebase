@@ -162,6 +162,11 @@ final class CasebaseKnightsService: ObservableObject {
         environment["PATH"] = path
         environment["PORT"] = String(port)
         environment["KNIGHTS_PARENT_PID"] = String(getpid())
+        // Lets the knights search casebase through casebase-mcp (shipped next to casebase.app in dist/).
+        let bundledMCP = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("casebase-mcp")
+        if environment["CASEBASE_MCP"] == nil, FileManager.default.isExecutableFile(atPath: bundledMCP.path) {
+            environment["CASEBASE_MCP"] = bundledMCP.path
+        }
         process.environment = environment
 
         let pipe = Pipe()
@@ -230,6 +235,34 @@ final class CasebaseKnightsService: ObservableObject {
             start()
         }
         RoundTablePanelController.shared.toggle()
+    }
+
+    /// Opens a round table about one casebase record (new table with the latest members, record preloaded).
+    /// Returns the conversation id to show.
+    func discuss(recordID: UUID) async throws -> String {
+        if status != .running {
+            if status == .idle { start() } else if status != .starting { retry() }
+            let deadline = Date().addingTimeInterval(Self.readyTimeout + 2)
+            while status != .running, Date() < deadline {
+                try await Task.sleep(nanoseconds: 300_000_000)
+            }
+            guard status == .running else {
+                throw CasebaseError.operationTimedOut(failureDescription ?? "圆桌还没启动好")
+            }
+        }
+
+        var request = URLRequest(url: rootURL.appendingPathComponent("api/casebase/discuss"), timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["recordId": recordID.uuidString])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.connectionProxyDictionary = [:]
+        let (data, _) = try await URLSession(configuration: configuration).data(for: request)
+        let payload = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        guard let conversationID = payload["id"] as? String else {
+            throw CasebaseError.analysisFailed(payload["error"] as? String ?? "圆桌没有响应")
+        }
+        return conversationID
     }
 
     /// Manual retry after a failure; resets the auto-restart budget.

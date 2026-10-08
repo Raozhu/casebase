@@ -147,6 +147,7 @@ final class CasebaseInboxWatcher {
                 "inbox import completed file=\(fileURL.lastPathComponent) recordID=\(record.id.uuidString)"
             )
             NotificationCenter.default.post(name: .casebaseRecordsChanged, object: nil)
+            KnightsActivityCenter.shared.noteTeamMemoryImported()
         } catch {
             move(fileURL, into: failedURL)
             CasebaseDebugLogger.log(

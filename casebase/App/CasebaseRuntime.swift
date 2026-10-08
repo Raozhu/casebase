@@ -86,9 +86,10 @@ struct CasebaseRuntime {
     }
 }
 
-enum CasebaseHotKeyAction: String {
+enum CasebaseHotKeyAction: String, CaseIterable {
     case selectionCapture
     case screenshotCapture
+    case roundTable
 }
 
 struct CasebaseHotKeyDescriptor: Equatable, Codable {
@@ -119,6 +120,8 @@ struct CasebaseHotKeyDescriptor: Equatable, Codable {
             return CasebaseHotKeyDescriptor(keyCode: UInt32(kVK_F1), carbonModifiers: UInt32(cmdKey))
         case .screenshotCapture:
             return CasebaseHotKeyDescriptor(keyCode: UInt32(kVK_F2), carbonModifiers: UInt32(cmdKey))
+        case .roundTable:
+            return CasebaseHotKeyDescriptor(keyCode: UInt32(kVK_F4), carbonModifiers: UInt32(cmdKey))
         }
     }
 
@@ -225,6 +228,7 @@ final class CasebaseHotKeyStore: ObservableObject {
 
     @Published private(set) var selectionCaptureShortcut: CasebaseHotKeyDescriptor
     @Published private(set) var screenshotCaptureShortcut: CasebaseHotKeyDescriptor
+    @Published private(set) var roundTableShortcut: CasebaseHotKeyDescriptor
 
     private let userDefaults: UserDefaults
 
@@ -232,6 +236,7 @@ final class CasebaseHotKeyStore: ObservableObject {
         self.userDefaults = userDefaults
         selectionCaptureShortcut = Self.loadShortcut(for: .selectionCapture, userDefaults: userDefaults)
         screenshotCaptureShortcut = Self.loadShortcut(for: .screenshotCapture, userDefaults: userDefaults)
+        roundTableShortcut = Self.loadShortcut(for: .roundTable, userDefaults: userDefaults)
     }
 
     func shortcut(for action: CasebaseHotKeyAction) -> CasebaseHotKeyDescriptor {
@@ -240,20 +245,25 @@ final class CasebaseHotKeyStore: ObservableObject {
             return selectionCaptureShortcut
         case .screenshotCapture:
             return screenshotCaptureShortcut
+        case .roundTable:
+            return roundTableShortcut
         }
     }
 
     @discardableResult
     func setShortcut(_ shortcut: CasebaseHotKeyDescriptor, for action: CasebaseHotKeyAction) -> Bool {
-        let otherAction: CasebaseHotKeyAction = action == .selectionCapture ? .screenshotCapture : .selectionCapture
-        let existingOtherShortcut = self.shortcut(for: otherAction)
-        guard shortcut != existingOtherShortcut else { return false }
+        let isTaken = CasebaseHotKeyAction.allCases.contains { other in
+            other != action && self.shortcut(for: other) == shortcut
+        }
+        guard !isTaken else { return false }
 
         switch action {
         case .selectionCapture:
             selectionCaptureShortcut = shortcut
         case .screenshotCapture:
             screenshotCaptureShortcut = shortcut
+        case .roundTable:
+            roundTableShortcut = shortcut
         }
 
         saveShortcut(shortcut, for: action)
@@ -275,6 +285,8 @@ final class CasebaseHotKeyStore: ObservableObject {
             return "casebase.shortcut.selectionCapture"
         case .screenshotCapture:
             return "casebase.shortcut.screenshotCapture"
+        case .roundTable:
+            return "casebase.shortcut.roundTable"
         }
     }
 

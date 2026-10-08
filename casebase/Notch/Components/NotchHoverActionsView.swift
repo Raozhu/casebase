@@ -14,6 +14,8 @@ struct NotchHoverActionsView: View {
     let onOpenAPIKeySettings: () -> Void
     let isMeasuring: Bool
     @ObservedObject private var knights = CasebaseKnightsService.shared
+    @ObservedObject private var activity = KnightsActivityCenter.shared
+    @ObservedObject private var hotKeys = CasebaseHotKeyStore.shared
 
     @ViewBuilder
     var body: some View {
@@ -57,7 +59,10 @@ struct NotchHoverActionsView: View {
 
                 HoverActionButton(
                     icon: .library,
-                    helpText: CasebasePromptCatalog.ui.hoverActionLibraryTooltip,
+                    helpText: activity.unseenTeamMemoryCount > 0
+                        ? "\(CasebasePromptCatalog.ui.hoverActionLibraryTooltip) · 新增 \(activity.unseenTeamMemoryCount) 条团队记忆"
+                        : CasebasePromptCatalog.ui.hoverActionLibraryTooltip,
+                    badgeCount: activity.unseenTeamMemoryCount,
                     action: onOpenLibrary
                 )
 
@@ -70,9 +75,10 @@ struct NotchHoverActionsView: View {
                 HoverActionButton(
                     icon: .sword,
                     helpText: CasebasePromptCatalog.language == .simplifiedChinese
-                        ? "圆桌 · 召集 AI 骑士"
-                        : "Round Table · summon the AI knights",
+                        ? "圆桌 · 召集 AI 骑士（\(hotKeys.roundTableShortcut.displayString)）"
+                        : "Round Table · summon the AI knights (\(hotKeys.roundTableShortcut.displayString))",
                     statusDotColor: knightsStatusDotColor,
+                    badgeCount: activity.unreadCount,
                     action: onOpenRoundTable
                 )
             }
@@ -159,6 +165,7 @@ private struct HoverActionButton: View {
     let icon: NotchPixelIcon
     let helpText: String
     var statusDotColor: Color? = nil
+    var badgeCount = 0
     let action: () -> Void
 
     private var label: String {
@@ -191,7 +198,15 @@ private struct HoverActionButton: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
                 .overlay(alignment: .topTrailing) {
-                    if let statusDotColor {
+                    if badgeCount > 0 {
+                        Text(badgeCount > 99 ? "99+" : "\(badgeCount)")
+                            .font(.system(size: 9, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 5)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(Capsule().fill(Color(red: 1.0, green: 0.73, blue: 0.22)))
+                            .padding(5)
+                    } else if let statusDotColor {
                         Circle()
                             .fill(statusDotColor)
                             .frame(width: 6, height: 6)

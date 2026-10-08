@@ -22,6 +22,15 @@ final class RoundTablePanelController: NSObject {
     private var themeObserver: AnyCancellable?
     private var needsLoad = true
     private var isAnimatingOut = false
+    private var pendingConversationID: String?
+    /// The app the user came from, re-activated when the window is tucked away.
+    private var previousApp: NSRunningApplication?
+
+    /// True while the user can actually see the round table.
+    var isFrontmost: Bool {
+        guard let panel, panel.isVisible, !isAnimatingOut else { return false }
+        return NSApp.isActive && panel.isKeyWindow
+    }
 
     private override init() {
         let configuration = WKWebViewConfiguration()
@@ -68,10 +77,21 @@ final class RoundTablePanelController: NSObject {
         }
     }
 
-    func show() {
+    /// Shows the window; with a conversation id, also switches the page to that round table.
+    func show(conversationID: String? = nil) {
         let panel = panel ?? makePanel()
+        if let conversationID {
+            pendingConversationID = conversationID
+        }
         loadIfNeeded()
+        selectPendingConversation()
         updateContentVisibility()
+        KnightsActivityCenter.shared.markRoundTableSeen()
+        if let frontmost = NSWorkspace.shared.frontmostApplication,
+           frontmost.processIdentifier != ProcessInfo.processInfo.processIdentifier
+        {
+            previousApp = frontmost
+        }
         NSApp.activate(ignoringOtherApps: true)
 
         guard !panel.isVisible || isAnimatingOut else {
@@ -106,6 +126,10 @@ final class RoundTablePanelController: NSObject {
                 guard let self, self.isAnimatingOut else { return }
                 self.isAnimatingOut = false
                 panel.orderOut(nil)
+                if NSApp.isActive, let previousApp = self.previousApp, !previousApp.isTerminated {
+                    previousApp.activate()
+                }
+                self.previousApp = nil
                 // Restore the resting frame so position/size persist (and autosave) correctly.
                 panel.setFrame(resting, display: false)
                 panel.alphaValue = 1
@@ -151,6 +175,17 @@ final class RoundTablePanelController: NSObject {
         container?.layer?.backgroundColor = palette.pageBackground.cgColor
         panel?.backgroundColor = palette.pageBackground
         panel?.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+    }
+
+    private func selectPendingConversation() {
+        guard let id = pendingConversationID, webView.url != nil, !webView.isLoading else { return }
+        pendingConversationID = nil
+        // Conversation ids are short hex strings; refuse anything else before handing it to JS.
+        guard id.allSatisfy({ $0.isLetter || $0.isNumber }) else { return }
+        // Also remember it as the page's current table, in case the page's own init runs after us.
+        webView.evaluateJavaScript(
+            "try{localStorage.setItem('cur','\(id)')}catch(e){};typeof select==='function'&&select('\(id)')"
+        )
     }
 
     private func loadIfNeeded() {
@@ -301,6 +336,10 @@ extension RoundTablePanelController: WKNavigationDelegate, WKUIDelegate {
             NSWorkspace.shared.open(url)
         }
         return nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        selectPendingConversation()
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
