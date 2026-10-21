@@ -503,6 +503,12 @@ function intakePulse() {
   model.feedbackScale.set(clock + 0.18, 1, "bouncy", [0.26, 0.82]);
 }
 
+/** Lets a pulse cut short by a new interaction fade out instead of holding its glow. */
+function settlePulse() {
+  if (model.captureSink.at(clock) > 0.001) model.captureSink.set(clock, 0, "easeOut", 0.3);
+  if (Math.abs(model.feedbackScale.at(clock) - 1) > 0.0001) model.feedbackScale.set(clock, 1, "bouncy", [0.26, 0.82]);
+}
+
 function flyIntoNotch(kind, rect, text) {
   model.flight.set(clock, { kind, rect, text, start: clock }, "step");
   model.flight.set(clock + 1.14, null, "step");
@@ -1468,6 +1474,7 @@ const LIVE_TRACKS = () => [
 /** A capture lands in the notch: glow, then the rail shows it being read and saved. */
 function liveIngest(thought) {
   LIVE_TRACKS().forEach((track) => track.clearAfter(clock));
+  settlePulse();
   if (model.content.at(clock) !== null) collapse();
   intakePulse();
   model.surface.set(clock, { w: NOTCH.w + LEADING_EXTENSION, h: NOTCH.h, r: 8, ox: -LEADING_EXTENSION / 2 });
@@ -1487,6 +1494,7 @@ function liveIngest(thought) {
 /** Open Explore, type the question, stream the answer with its sources. */
 function liveAsk(explore) {
   LIVE_TRACKS().forEach((track) => track.clearAfter(clock));
+  settlePulse();
   railHide();
   hideIndicator();
   model.askPhase.clearAfter(0);
@@ -1521,6 +1529,7 @@ function liveAsk(explore) {
 
 function liveReset() {
   LIVE_TRACKS().forEach((track) => track.clearAfter(clock));
+  settlePulse();
   railHide();
   hideIndicator();
   if (model.content.at(clock) !== null) collapse();
@@ -1540,6 +1549,7 @@ function sceneLive() {
   // Opening a panel cancels anything still scheduled from an earlier capture.
   const open = (state) => at(() => {
     LIVE_TRACKS().forEach((track) => track.clearAfter(clock));
+    settlePulse();
     if (model.indicator.at(clock)) { railHide(); hideIndicator(); }
     expandTo(state);
   });

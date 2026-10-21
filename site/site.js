@@ -96,6 +96,7 @@ applyLanguage();
 
 let notchRect = { x: 327.5, y: 0, w: 185, h: 33 };
 let hovering = false;
+let notchBusyUntil = 0;
 const frameScale = () => Math.min(1, window.innerWidth / 840);
 
 function placeNotch() {
@@ -113,7 +114,8 @@ function pageRect() {
 
 function setHover(value) {
   if (value === hovering) return;
-  if (value) stopAutoplay();
+  if (value) pauseAutoplay();
+  else resumeAutoplaySoon();
   hovering = value;
   notch.style.pointerEvents = value ? "auto" : "none";
   notch.contentWindow?.postMessage({ type: "cb-live", hover: value }, "*");
@@ -123,6 +125,8 @@ function setHover(value) {
 window.addEventListener("mousemove", (event) => {
   // While open, the frame takes the pointer; a move the page still sees is outside it.
   if (hovering) { setHover(false); return; }
+  // A card in hand, or one just dropped and still being saved, owns the notch.
+  if (document.body.classList.contains("dragging-card") || performance.now() < notchBusyUntil) return;
   const r = pageRect();
   const pad = 16 * frameScale();
   if (event.clientX >= r.x - pad && event.clientX <= r.x + r.w + pad && event.clientY <= r.h + pad) setHover(true);
@@ -276,25 +280,30 @@ function bringBack() {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let autoplay = true;
+let heroRun = 0;
+let userTookOver = false;
 let heroVisible = true;
 
-async function playHero() {
-  while (autoplay) {
+async function playHero(run = heroRun) {
+  const playing = () => autoplay && run === heroRun;
+  while (playing()) {
     if (!heroVisible) { await wait(400); continue; }
     await wait(1400);
     for (const card of fragments) {
-      if (!autoplay) return;
+      if (!playing()) return;
       if (card.offsetParent === null || card.classList.contains("gone")) continue;
       fly(card, undefined, true);
       await wait(520);
     }
-    if (!autoplay) return;
+    if (!playing()) return;
     await wait(900);
+    if (!playing()) return;
     strike();
     await wait(700);
+    if (!playing()) return;
     live({ ask: true });
     await wait(lang === "en" ? 9000 : 10000);
-    if (!autoplay) return;
+    if (!playing()) return;
     tryHint.classList.add("show");
     live({ reset: true });
     unstrike();
@@ -304,13 +313,28 @@ async function playHero() {
   }
 }
 
-function stopAutoplay() {
+// Hovering the notch pauses the hero; leaving it starts the hero over unless a card was dragged.
+function pauseAutoplay() {
   if (!autoplay) return;
   autoplay = false;
+  heroRun++;
   flightGeneration++;
   live({ reset: true });
   unstrike();
   bringBack();
+}
+
+function resumeAutoplaySoon() {
+  setTimeout(() => {
+    if (autoplay || hovering || userTookOver) return;
+    autoplay = true;
+    playHero(heroRun);
+  }, 1200);
+}
+
+function stopAutoplay() {
+  userTookOver = true;
+  pauseAutoplay();
   tryHint.classList.add("show");
 }
 
@@ -362,6 +386,7 @@ for (const card of fragments) {
       card.classList.remove("dragging");
       document.body.classList.remove("dragging-card");
       if (nearNotch(e.clientX, e.clientY)) {
+        notchBusyUntil = performance.now() + 4300;
         fly(card, delta).then(answerWhenAllIn);
       } else {
         if (over) live({ dropTarget: false });
