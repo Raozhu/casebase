@@ -71,8 +71,8 @@ struct CasebaseConfiguration: Hashable {
             throw CasebaseError.missingConfiguration("CASEBASE_API_BASE_URL")
         }
 
-        let analysisModel = resolvedEnvironment["CASEBASE_ANALYSIS_MODEL"] ?? "deepseek-v4-pro"
-        let answerModel = resolvedEnvironment["CASEBASE_ANSWER_MODEL"] ?? "deepseek-v4-pro"
+        let analysisModel = resolvedEnvironment["CASEBASE_ANALYSIS_MODEL"] ?? "deepseek-flash"
+        let answerModel = resolvedEnvironment["CASEBASE_ANSWER_MODEL"] ?? "deepseek-flash"
         let embeddingModel = resolvedEnvironment["CASEBASE_EMBEDDING_MODEL"] ?? ""
         let googleBaseURLString = resolvedEnvironment["CASEBASE_GOOGLE_API_BASE_URL"] ?? "https://generativelanguage.googleapis.com/v1beta"
         guard let googleBaseURL = URL(string: googleBaseURLString) else {

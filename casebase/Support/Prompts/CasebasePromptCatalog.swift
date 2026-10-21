@@ -437,15 +437,15 @@ enum CasebasePromptCatalog {
 
         var settingsGoogleAPIKeyStatusConfigured: String {
             switch language {
-            case .simplifiedChinese: return "Google API Key 已设置：图片、PDF 与向量检索将走 Gemini。"
-            case .english: return "Google API Key is set. Images, PDFs, and embeddings will use Gemini."
+            case .simplifiedChinese: return "Google API Key 已设置：仅向量检索使用 Gemini，图片和 PDF 使用 DeepSeek Flash。"
+            case .english: return "Google API Key is set. Only embeddings use Gemini; images and PDFs use DeepSeek Flash."
             }
         }
 
         var settingsGoogleAPIKeyStatusMissing: String {
             switch language {
-            case .simplifiedChinese: return "Google API Key 未设置：图片、PDF 会先本地 OCR，再交给 DeepSeek。"
-            case .english: return "Google API Key is missing. Images and PDFs will use local OCR before DeepSeek."
+            case .simplifiedChinese: return "Google API Key 未设置：图片和 PDF 仍使用 DeepSeek Flash；向量检索不可用。"
+            case .english: return "Google API Key is missing. Images and PDFs still use DeepSeek Flash; embeddings are unavailable."
             }
         }
 

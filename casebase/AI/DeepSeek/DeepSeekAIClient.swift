@@ -631,7 +631,10 @@ final class DeepSeekAIClient: AIClient {
             model: model,
             messages: [
                 ["role": "system", "content": system],
-                ["role": "user", "content": DeepSeekContentEncoder.analysisUserPrompt(for: content)],
+                [
+                    "role": "user",
+                    "content": DeepSeekContentEncoder.analysisUserMessageContent(for: content),
+                ],
             ],
             stream: false,
             jsonMode: true,
@@ -692,7 +695,7 @@ final class DeepSeekAIClient: AIClient {
 
     private static func chatRequest(
         model: String,
-        messages: [[String: String]],
+        messages: [[String: Any]],
         stream: Bool,
         jsonMode: Bool,
         maxTokens: Int
@@ -801,10 +804,10 @@ final class DeepSeekAIClient: AIClient {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? ""
-        if first == "deepseek-v4-pro" || first == "deepseek-v4-flash" {
+        if first == "deepseek-flash" || first == "deepseek-v4-pro" || first == "deepseek-v4-flash" {
             return first
         }
-        return "deepseek-v4-pro"
+        return "deepseek-flash"
     }
 
     private static func describeTransportError(_ error: DeepSeekTransportError) -> String {
@@ -824,7 +827,11 @@ final class DeepSeekAIClient: AIClient {
 }
 
 private enum DeepSeekContentEncoder {
-    static func analysisUserPrompt(for content: NormalizedContent) -> String {
+    private static let maxVisualAttachments = 8
+    private static let maxVisualBytesPerAttachment = 4_000_000
+    private static let maxTotalVisualBytes = 12_000_000
+
+    static func analysisUserMessageContent(for content: NormalizedContent) -> [[String: Any]] {
         var sections: [String] = []
 
         if let userSupplement = content.fallbackMetadata[CasebasePromptCatalog.ai.userSupplementMetadataKey]?
@@ -862,7 +869,48 @@ private enum DeepSeekContentEncoder {
             sections.append("No parsed text is available. Use only the file metadata and mark the record for review if needed.")
         }
 
-        return sections.joined(separator: "\n\n")
+        var parts: [[String: Any]] = [[
+            "type": "text",
+            "text": sections.joined(separator: "\n\n"),
+        ]]
+        parts.append(contentsOf: visualParts(from: content.attachments, sourceKind: content.sourceKind))
+        return parts
+    }
+
+    private static func visualParts(
+        from attachments: [NormalizedAttachment],
+        sourceKind: ImportSourceKind
+    ) -> [[String: Any]] {
+        let allowedKinds: Set<NormalizedAttachmentKind>
+        switch sourceKind {
+        case .image:
+            allowedKinds = [.imagePreview]
+        case .pdf:
+            allowedKinds = [.pagePreview]
+        case .text, .audio, .folder, .binary:
+            return []
+        }
+
+        var parts: [[String: Any]] = []
+        var totalBytes = 0
+        for attachment in attachments where allowedKinds.contains(attachment.kind) {
+            guard parts.count < maxVisualAttachments else { break }
+            let fileURL = URL(fileURLWithPath: attachment.path)
+            guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe),
+                  data.count <= maxVisualBytesPerAttachment,
+                  totalBytes + data.count <= maxTotalVisualBytes
+            else { continue }
+
+            let mimeType = attachment.mimeType?.isEmpty == false ? attachment.mimeType! : "image/jpeg"
+            parts.append([
+                "type": "image_url",
+                "image_url": [
+                    "url": "data:\(mimeType);base64,\(data.base64EncodedString())",
+                ],
+            ])
+            totalBytes += data.count
+        }
+        return parts
     }
 
     private static func extractedPublicHTTPURLs(from text: String) -> [URL] {

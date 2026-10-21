@@ -10,10 +10,6 @@ final class CasebaseRoutedAIClient: AIClient, QueryEmbeddingProviding {
     }
 
     func analyze(content: NormalizedContent, thoughtHandler: AIThoughtHandler?) async throws -> AnalysisResult {
-        if shouldUseGeminiForAnalysis(content), let geminiClient {
-            return try await geminiClient.analyze(content: content, thoughtHandler: thoughtHandler)
-        }
-
         return try await deepSeekClient.analyze(content: content, thoughtHandler: thoughtHandler)
     }
 
@@ -43,12 +39,4 @@ final class CasebaseRoutedAIClient: AIClient, QueryEmbeddingProviding {
         )
     }
 
-    private func shouldUseGeminiForAnalysis(_ content: NormalizedContent) -> Bool {
-        switch content.sourceKind {
-        case .image, .pdf:
-            return true
-        case .text, .audio, .folder, .binary:
-            return false
-        }
-    }
 }

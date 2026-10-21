@@ -30,8 +30,8 @@ final class CasebaseAPIKeyStore: ObservableObject {
         var environment = Self.loadEnvironment(fileManager: fileManager)
         environment["DEEPSEEK_API_KEY"] = trimmed
         environment["CASEBASE_API_BASE_URL"] = "https://api.deepseek.com"
-        environment["CASEBASE_ANALYSIS_MODEL"] = "deepseek-v4-pro"
-        environment["CASEBASE_ANSWER_MODEL"] = "deepseek-v4-pro"
+        environment["CASEBASE_ANALYSIS_MODEL"] = "deepseek-flash"
+        environment["CASEBASE_ANSWER_MODEL"] = "deepseek-flash"
         environment["CASEBASE_EMBEDDING_MODEL"] = ""
         try Self.writeEnvironment(environment, fileManager: fileManager)
 
