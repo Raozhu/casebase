@@ -504,3 +504,7 @@
 .cb-term-body .res { color: #a0a0a0; }
 .cb-term-body .say { color: #e6e6e6; }
 .cb-term-body .spin { color: #d98a5a; }
+
+/* Live notch on a web page */
+html.cb-embed .cb-hover-button, html.cb-embed .cb-chrome-button { cursor: pointer; }
+html.cb-embed .cb-hover-button:hover .cb-hover-box { background: rgba(255,255,255,0.1); }

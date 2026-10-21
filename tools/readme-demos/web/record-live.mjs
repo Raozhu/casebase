@@ -35,7 +35,7 @@ await new Promise((resolve) => server.listen(0, resolve));
 const browser = await webkit.launch();
 const page = await browser.newPage({ viewport: { width: 840, height: 800 }, deviceScaleFactor: 2 });
 page.on("pageerror", (error) => console.log("page error:", error.message));
-await page.goto(`http://localhost:${server.address().port}/demo.html?scene=roundtable&lang=${lang}&live=1&rt=${encodeURIComponent(rt + "/")}`);
+await page.goto(`http://localhost:${server.address().port}/demo.html?scene=roundtable&lang=${lang}&live=1&rt=${encodeURIComponent(rt + "/")}${process.env.NOCAPTION ? "&nocaption=1" : ""}`);
 await page.waitForFunction(() => window.casebaseDemo);
 await page.evaluate(() => document.fonts.ready);
 let knights;
@@ -89,7 +89,7 @@ stamps.forEach((t, i) => {
 lines.push(`file f${String(stamps.length - 1).padStart(5, "0")}.png`);
 await writeFile(join(frames, "frames.ffconcat"), lines.join("\n"));
 const input = ["-f", "concat", "-safe", "0", "-i", join(frames, "frames.ffconcat")];
-const name = join(out, `roundtable-${lang}`);
+const name = join(out, `roundtable-${lang}${process.env.NOCAPTION ? "-clean" : ""}`);
 execFileSync("ffmpeg", ["-loglevel", "error", "-y", ...input, "-vf", "fps=30", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart", `${name}.mp4`]);
 execFileSync("ffmpeg", ["-loglevel", "error", "-y", ...input,
   "-vf", "fps=10,scale=840:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle",

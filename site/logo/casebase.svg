@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#4a3aa8"/><stop offset="0.45" stop-color="#2a1f63"/><stop offset="1" stop-color="#140f2e"/>
+    </linearGradient>
+    <radialGradient id="rose" cx="0.85" cy="0.95" r="0.6"><stop offset="0" stop-color="#e98a7a" stop-opacity="0.45"/><stop offset="1" stop-color="#e98a7a" stop-opacity="0"/></radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe7c4" stop-opacity="0.55"/><stop offset="1" stop-color="#ffe7c4" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb196"/><stop offset="1" stop-color="#ea6f55"/></linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.35"/><stop offset="0.12" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#08051a" flood-opacity="0.55"/></filter>
+    <clipPath id="body"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+  <g clip-path="url(#body)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#bg)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#rose)"/>
+    <!-- light falling from the notch -->
+    <path d="M 360 250 L 664 250 L 800 924 L 224 924 Z" fill="url(#beam)" opacity="0.55" filter="url(#soft)"/>
+    <ellipse cx="512" cy="268" rx="190" ry="46" fill="#fff4dc" opacity="0.35" filter="url(#soft)"/>
+    <!-- notch -->
+    <!-- card arcing up into the notch, with its trail -->
+    <path d="M 300 820 C 300 620 420 440 500 330" stroke="#ffb196" stroke-width="10" stroke-linecap="round" stroke-dasharray="2 34" fill="none" opacity="0.6"/>
+    <g transform="translate(470 420) rotate(-24)" filter="url(#shadow)">
+      <rect x="-112" y="-80" width="224" height="160" rx="32" fill="url(#card)"/>
+      <rect x="-76" y="-38" width="112" height="18" rx="9" fill="#fff" opacity="0.92"/>
+      <rect x="-76" y="-4" width="150" height="14" rx="7" fill="#fff" opacity="0.55"/>
+      <rect x="-76" y="26" width="96" height="14" rx="7" fill="#fff" opacity="0.55"/>
+    </g>
+    <!-- the spark: what you get back -->
+    <path d="M 676 560 C 684 610 700 626 750 634 C 700 642 684 658 676 708 C 668 658 652 642 602 634 C 652 626 668 610 676 560 Z" fill="#fff6e0"/>
+    <circle cx="676" cy="634" r="40" fill="#fff6e0" opacity="0.35" filter="url(#soft)"/>
+    <rect x="100" y="100" width="824" height="824" fill="url(#edge)"/>
+    <path d="M 296 100 L 728 100 A 36 36 0 0 0 692 136 L 692 194 A 58 58 0 0 1 634 252 L 390 252 A 58 58 0 0 1 332 194 L 332 136 A 36 36 0 0 0 296 100 Z" fill="#000"/>
+  </g>
+</svg>

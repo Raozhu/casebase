@@ -126,8 +126,13 @@ const STAGE_HEIGHT = params.get("scene") === "ask" ? 760 : 680;
 stage.style.height = `${STAGE_HEIGHT}px`;
 document.getElementById("demo").appendChild(stage);
 
-stage.appendChild(el("div", "cb-wallpaper"));
-stage.appendChild(el("div", "cb-menubar"));
+const LIVE = params.get("scene") === "live";
+if (!LIVE) {
+  stage.appendChild(el("div", "cb-wallpaper"));
+  stage.appendChild(el("div", "cb-menubar"));
+} else {
+  stage.style.background = "transparent";
+}
 
 const desktopFile = el("div", "cb-desktop-file", `<img src="assets/pdf.png" alt=""><span>${escapeHTML(T.reportFile)}</span>`);
 stage.appendChild(desktopFile);
@@ -807,7 +812,7 @@ function render(t) {
 
   const captionText = model.caption.at(t);
   caption.textContent = captionText;
-  caption.style.display = captionText ? "block" : "none";
+  caption.style.display = captionText && !params.has("nocaption") ? "block" : "none";
   caption.style.opacity = model.captionOpacity.at(t);
   caption.style.top = `${STAGE_HEIGHT - 34}px`;
 
@@ -1445,6 +1450,130 @@ function renderTerminal(t) {
   term.querySelector(".cb-term-body").innerHTML = html;
 }
 
+// ---------------------------------------------------------------------------
+// Live notch for a web page: hover to open the menu, click through to panels.
+// The host page sends hover state; the frame reports the notch's rectangle back.
+
+let liveStart = 0;
+const liveNow = () => (performance.now() - liveStart) / 1000;
+
+
+const LIVE_TRACKS = () => [
+  model.indicator, model.indicatorOpacity, model.railText, model.railState, model.rail,
+  model.surface, model.shadow, model.composite, model.compositeOpacity, model.content,
+  model.captureSink, model.feedbackScale, model.askPhase, model.draft, model.answerText,
+  ...Object.values(model.contentOpacity),
+];
+
+/** A capture lands in the notch: glow, then the rail shows it being read and saved. */
+function liveIngest(thought) {
+  LIVE_TRACKS().forEach((track) => track.clearAfter(clock));
+  if (model.content.at(clock) !== null) collapse();
+  intakePulse();
+  model.surface.set(clock, { w: NOTCH.w + LEADING_EXTENSION, h: NOTCH.h, r: 8, ox: -LEADING_EXTENSION / 2 });
+  showIndicator("recognizing");
+  railShow(condensed(thought), "recognizing");
+  model.indicator.set(clock + 1.1, "success", "step");
+  model.railState.set(clock + 1.1, "success", "step");
+  model.railText.set(clock + 1.1, T.saved, "step");
+  // The result rail stays for 2 s (taskRailResultDurationNs), then the notch tucks back in.
+  const now = clock;
+  clock = now + 3.1;
+  railHide();
+  hideIndicator();
+  clock = now;
+}
+
+/** Open Explore, type the question, stream the answer with its sources. */
+function liveAsk(explore) {
+  LIVE_TRACKS().forEach((track) => track.clearAfter(clock));
+  railHide();
+  hideIndicator();
+  model.askPhase.clearAfter(0);
+  model.draft.clearAfter(0);
+  model.answerText.clearAfter(0);
+  model.askPhase.set(clock, "empty", "step");
+  model.draft.set(clock, "", "step");
+  model.answerText.set(clock, "", "step");
+  expandTo("explore", { w: 560, h: 320 });
+  wait(0.5);
+  for (const character of ASK.question) {
+    model.draft.set(clock, model.draft.at(clock) + character, "step");
+    wait(LANG === "zh" ? 0.09 : 0.045);
+  }
+  wait(0.35);
+  model.askPhase.set(clock, "pending", "step");
+  let height = 320;
+  let streamed = "";
+  for (const character of ASK.answer) {
+    streamed += character;
+    model.answerText.set(clock, streamed, "step");
+    explore.update(clock + 0.0001);
+    const measured = Math.min(640, Math.max(320, measureContent("explore", 560)));
+    if (measured !== height) { resizePanel(measured); height = measured; }
+    wait(LANG === "zh" ? 0.035 : 0.015);
+  }
+  model.askPhase.set(clock, "ready", "step");
+  model.draft.set(clock, "", "step");
+  explore.update(clock + 0.0001);
+  resizePanel(Math.min(640, Math.max(340, measureContent("explore", 560))));
+}
+
+function liveReset() {
+  LIVE_TRACKS().forEach((track) => track.clearAfter(clock));
+  railHide();
+  hideIndicator();
+  if (model.content.at(clock) !== null) collapse();
+}
+
+function sceneLive() {
+  register("hover", hoverView(), { w: 420, h: 197 });
+  register("dropTarget", dropZone, { w: 520, h: 220 });
+  register("library", libraryView([RECORDS.report, RECORDS.meeting, RECORDS.pricing, RECORDS.interview, RECORDS.contract]), { w: 520, h: 456 });
+  const explore = exploreView();
+  register("explore", explore.node, { w: 560, h: 320 }, explore.update);
+  register("todos", todoListView(), { w: 520, h: 448 });
+  model.cursor.set(0, { x: -100, y: -100 }, "step");
+  liveStart = performance.now();
+
+  const at = (fn) => { clock = liveNow(); fn(); };
+  // Opening a panel cancels anything still scheduled from an earlier capture.
+  const open = (state) => at(() => {
+    LIVE_TRACKS().forEach((track) => track.clearAfter(clock));
+    if (model.indicator.at(clock)) { railHide(); hideIndicator(); }
+    expandTo(state);
+  });
+  const close = () => at(() => { if (model.content.at(clock) !== null) collapse(); });
+  window.addEventListener("message", (event) => {
+    if (!event.data || event.data.type !== "cb-live") return;
+    if (event.data.hover && model.content.at(liveNow()) === null) open("hover");
+    if (event.data.hover === false) close();
+    if (event.data.ingest) at(() => liveIngest(event.data.ingest));
+    if (event.data.ask) at(() => liveAsk(explore));
+    if (event.data.reset) at(() => liveReset());
+    if (event.data.dropTarget === true && model.content.at(liveNow()) !== "dropTarget") open("dropTarget");
+    if (event.data.dropTarget === false && model.content.at(liveNow()) === "dropTarget") close();
+  });
+  const targets = [["explore", 0], ["library", 1], ["todos", 2]];
+  for (const [state, index] of targets) {
+    CONTENT.hover.querySelectorAll(".cb-hover-button")[index].addEventListener("click", () => open(state));
+  }
+  for (const name of ["library", "explore", "todos"]) {
+    CONTENT[name].addEventListener("click", (event) => {
+      if (event.target.closest(".cb-chrome-button")) open("hover");
+    });
+  }
+  document.addEventListener("mousemove", (event) => {
+    const r = window.casebaseDemo.notchRect();
+    const inside = event.clientX >= r.x - 16 && event.clientX <= r.x + r.w + 16 && event.clientY <= r.h + 16;
+    if (!inside) {
+      close();
+      window.parent.postMessage({ type: "cb-live-leave" }, "*");
+    }
+  });
+  return Infinity;
+}
+
 // Static views for comparing against the app's own rendering.
 function sceneCheck() {
   const view = params.get("view");
@@ -1455,7 +1584,7 @@ function sceneCheck() {
   return 2;
 }
 
-const SCENES = { drop: sceneDrop, text: sceneText, shot: sceneShot, ask: sceneAsk, meeting: sceneMeeting, roundtable: sceneRoundTable, mcp: sceneMCP, check: sceneCheck };
+const SCENES = { drop: sceneDrop, text: sceneText, shot: sceneShot, ask: sceneAsk, meeting: sceneMeeting, roundtable: sceneRoundTable, mcp: sceneMCP, live: sceneLive, check: sceneCheck };
 const MARKERS = {};
 const sceneName = params.get("scene") || "drop";
 const sceneQuery = location.search;
@@ -1465,10 +1594,28 @@ const duration = SCENES[sceneName]();
 window.casebaseDemo = {
   duration,
   markers: MARKERS,
+  notchRect() {
+    const surface = model.surface.at(LIVE ? liveNow() : 0);
+    return { x: CX + surface.ox - surface.w / 2, y: 0, w: surface.w, h: surface.h };
+  },
   seek(t) { render(t); },
 };
 
-if (params.has("live")) {
+if (LIVE) {
+  document.documentElement.classList.add("cb-embed");
+  let last = "";
+  const loop = () => {
+    render(liveNow());
+    const r = window.casebaseDemo.notchRect();
+    const key = [r.x, r.w, r.h].map((v) => Math.round(v)).join(",");
+    if (key !== last) {
+      last = key;
+      window.parent.postMessage({ type: "cb-live-rect", rect: r }, "*");
+    }
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+} else if (params.has("live")) {
   // Real-time playback for scenes with live content; the recorder reads elapsed().
   let start = null;
   window.casebaseDemo.begin = () => { start = performance.now(); };
@@ -1478,6 +1625,39 @@ if (params.has("live")) {
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
+} else if (params.has("embed")) {
+  // Embedded in a page: scale to the frame's width, and play only while the host says it's visible.
+  document.documentElement.classList.add("cb-embed");
+  // Optional crop "x,y,w,h" (stage points): show only that region, scaled to the frame.
+  const crop = (params.get("crop") || `0,0,840,${STAGE_HEIGHT}`).split(",").map(Number);
+  const fit = () => {
+    const scale = window.innerWidth / crop[2];
+    stage.style.transformOrigin = "0 0";
+    stage.style.transform = `scale(${scale}) translate(${-crop[0]}px, ${-crop[1]}px)`;
+  };
+  fit();
+  window.addEventListener("resize", fit);
+  // The host sends start (from the top), pause (hold this frame) and resume.
+  // Before the first start, the scene's last frame stands in as a poster.
+  const poster = Math.max(0, duration - 0.6);
+  let start = null;
+  let held = poster;
+  const current = () => (start === null ? held : ((performance.now() - start) / 1000) % duration);
+  window.addEventListener("message", (event) => {
+    if (!event.data || event.data.type !== "cb-demo") return;
+    const action = event.data.action || (event.data.play ? "start" : "pause");
+    if (action === "start") start = performance.now();
+    else if (action === "pause" && start !== null) { held = current(); start = null; }
+    else if (action === "resume" && start === null) start = performance.now() - held * 1000;
+  });
+  const loop = () => {
+    render(current());
+    requestAnimationFrame(loop);
+  };
+  render(poster);
+  requestAnimationFrame(loop);
+  // Tell the host page we're listening, so it can send the current play state.
+  window.parent.postMessage({ type: "cb-demo-ready" }, "*");
 } else if (!params.has("record")) {
   const start = performance.now();
   const loop = () => {

@@ -11,6 +11,7 @@ SCENES=(${=SCENES:-drop text shot ask meeting mcp})
 LANGS=(${=LANGS:-zh en})
 for lang in $LANGS; do
   for scene in $SCENES; do
+    [[ $scene == none ]] && continue
     node record.mjs $scene $lang | tail -1
   done
 done

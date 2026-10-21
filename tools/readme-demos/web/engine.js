@@ -90,6 +90,11 @@ export class Track {
     return typeof s.to === "string" || typeof s.to === "boolean" || s.to === null ? (p > 0 || s.curve === "step" ? s.to : s.from) : mix(s.from, s.to, p);
   }
 
+  /** Drops changes scheduled after t, so a new interaction can take over. */
+  clearAfter(t) {
+    this.segments = this.segments.filter((segment) => segment.t <= t);
+  }
+
   /** Time since the value last changed, for one-shot animations keyed to a change. */
   since(t) {
     return t - this.segmentAt(t).t;
