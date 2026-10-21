@@ -92,8 +92,10 @@ const input = ["-f", "concat", "-safe", "0", "-i", join(frames, "frames.ffconcat
 const name = join(out, `roundtable-${lang}`);
 execFileSync("ffmpeg", ["-loglevel", "error", "-y", ...input, "-vf", "fps=30", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart", `${name}.mp4`]);
 execFileSync("ffmpeg", ["-loglevel", "error", "-y", ...input,
-  "-vf", "fps=15,scale=840:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=200:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle",
+  "-vf", "fps=10,scale=840:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle",
   `${name}.gif`]);
+// Lossless GIF optimization; lossy modes smear the dark panels.
+try { execFileSync("gifsicle", ["-O3", "-b", `${name}.gif`]); } catch { console.log("gifsicle not found; GIF left unoptimized"); }
 console.log(`${stamps.length} frames in ${duration.toFixed(1)}s -> ${name}.{gif,mp4}`);
 
 await browser.close();
