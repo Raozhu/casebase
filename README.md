@@ -1,60 +1,92 @@
 # casebase
 
-macOS 上的本地资料收集工具。
+[简体中文](README.zh-CN.md)
 
-它可以把你临时遇到的截图、选中文字、文件、PDF、图片、音频和会议录音保存到一个地方，之后再回看、搜索或继续提问。
+A local-first capture tool for macOS that lives in the notch.
 
-## 它做什么
+Save screenshots, selected text, files, PDFs, images, audio and meeting recordings to one place, then find them again, ask questions about them, and turn meetings into to-dos.
 
-- 保存截图、文件、PDF、图片和音频
-- 保存当前选中的文字
-- 录制会议，并把录音和转写文本一起保存
-- 把保存过的内容整理成可回看的资料记录
-- 支持基于已保存资料继续提问
+## What it does
 
-## 它解决什么问题
+- **Capture from anywhere**: drop files onto the notch, or use a hotkey to save the selected text or a screenshot
+- **Understand what you saved**: text, PDFs, Office documents, images (with OCR), audio and whole folders are parsed and summarized by an LLM
+- **Ask your library**: answers are grounded in your saved records and cite their sources
+- **Record meetings**: audio and transcript are saved together as one record, and action items are suggested as to-dos
+- **Manage to-dos**: due dates, filters, and AI-assisted breakdown into subtasks
+- **Use it from your AI tools**: the bundled `casebase-mcp` server lets MCP clients (Claude, Codex, …) search records and read or update to-dos
 
-工作里很多资料出现得很临时：聊天里的文件、网页上的一段话、临时截的图、会议里的结论。
+Everything is stored on your Mac in a SQLite database. Content is only sent to the model provider you configure.
 
-这些内容通常会散在桌面、下载目录、剪贴板、聊天记录和录音文件夹里。等到后面要找时，很难想起放在哪里，也很难把它们继续用起来。
+## Why
 
-casebase 解决的是这件事：先快速保存，之后还能找回、看懂、继续使用。
+Useful material shows up at random: a file in a chat, a paragraph on a web page, a quick screenshot, a decision made in a meeting. It ends up scattered across the desktop, Downloads, the clipboard and chat history, and is hard to find when you need it.
 
-## 适合什么场景
+casebase is about saving it in one step, and being able to find it, understand it and use it later.
 
-- 看到一段有用文字，想先保存下来
-- 临时截了一张图，之后可能要查
-- 收到文件或 PDF，但现在没时间整理
-- 开会时需要保留录音和转写
-- 做复盘、写文档、分析问题时，需要回到之前保存过的材料
+## Install
 
-## 怎么用
+1. Download `Casebase-<version>-arm64.dmg` from [Releases](https://github.com/Raozhu/casebase/releases) and drag `casebase.app` into Applications.
+2. The app is not notarized yet. On first launch macOS will block it: open **System Settings → Privacy & Security** and click **Open Anyway**.
+3. Open settings from the notch and enter a DeepSeek API key.
 
-### 拖拽保存
+Requires macOS 14 or later on Apple Silicon.
 
-把文件、图片、PDF、音频等内容拖到 casebase 顶部入口，松手后会自动入库。
+## Usage
 
-### 快捷键保存
+| Action | How |
+|---|---|
+| Save files, images, PDFs, audio, folders | Drag them onto the notch |
+| Save selected text | `⌘F1` |
+| Take and save a screenshot | `⌘F2` |
+| Open the round table (optional, see below) | `⌘F4` |
+| Record a meeting | Open **Record** in the notch, set the number of speakers and an optional topic |
+| Browse and ask questions | Open **Stored Data** in the notch |
 
-- `⌘F1`：保存当前选中文字
-- `⌘F2`：截图并保存
+Hotkeys can be changed in settings.
 
-### 会议录音
+## Configuration
 
-打开“会议”，填写人数和主题。人数默认 2，主题可以不填。
+Settings are read from `~/Library/Application Support/casebase/.env`. The API key entered in the app is written there too.
 
-点击开始后会录音。录音过程中切换到其他功能，不会中断。
+| Variable | Purpose |
+|---|---|
+| `DEEPSEEK_API_KEY` | Required. Analysis, answers, and image/PDF understanding |
+| `CASEBASE_ANALYSIS_MODEL`, `CASEBASE_ANSWER_MODEL` | Model names, default `deepseek-flash` |
+| `CASEBASE_GOOGLE_API_KEY` | Optional. Enables Gemini embeddings for semantic search (can also be set in the app) |
+| `CASEBASE_STORAGE_ROOT` | Optional. Where the database and assets live, default `~/Library/Application Support/casebase` |
 
-完成会议后，casebase 会把录音文件和转写文本保存成同一条记录。
+**Meeting transcription** uses a local oMLX server (OpenAI-compatible, model `VibeVoice-ASR-4bit`), configured in `~/.omlx/settings.json`. Without it, recording still works but no transcript is produced.
 
-### 查看资料
+**Round table** (`⌘F4`) is an optional companion: a local multi-agent group chat started from `KNIGHTS_HOME` on port 3721. Its memories are imported into casebase automatically. Set `KNIGHTS_AUTOSTART=0` to turn it off.
 
-进入“已存数据”，可以查看已保存的内容、整理结果和详情，也可以基于这些资料继续提问。
+## MCP server
 
-## 权限说明
+`casebase-mcp` is a stdio MCP server that reads the same local library. Tools:
 
-casebase 只在使用对应功能时请求权限：
+`casebase_list_records`, `casebase_search_records`, `casebase_get_record`, `casebase_list_todos`, `casebase_get_todo`, `casebase_create_todo`, `casebase_update_todo`
 
-- 辅助功能：读取当前选中文字
-- 屏幕录制：截图
-- 麦克风：会议录音
+Example client configuration:
+
+```json
+{
+  "mcpServers": {
+    "casebase": { "command": "/path/to/casebase-mcp" }
+  }
+}
+```
+
+## Permissions
+
+casebase asks for each permission only when you use the feature that needs it:
+
+- Accessibility: read the selected text
+- Screen Recording: take screenshots
+- Microphone: record meetings
+
+## Build from source
+
+Open `casebase.xcodeproj` in Xcode 16 or later and run the `casebase` scheme. The `casebase-mcp` scheme builds the MCP server.
+
+## License
+
+[GPL-3.0](LICENSE)
