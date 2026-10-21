@@ -287,7 +287,7 @@ let heroVisible = true;
 async function playHero(run = heroRun) {
   const playing = () => autoplay && run === heroRun;
   while (playing() && !heroVisible) await wait(400);
-  await wait(1400);
+  await wait(250);
   for (const card of fragments) {
     if (!playing()) return;
     if (card.offsetParent === null || card.classList.contains("gone")) continue;
@@ -305,7 +305,7 @@ async function playHero(run = heroRun) {
   stopAutoplay();
 }
 
-// Dragging a card or scrolling down ends the animation and hands the hero to the visitor.
+// Dragging a card or scrolling the hero fully off screen ends the animation and hands the hero to the visitor.
 function stopAutoplay() {
   if (!autoplay) return;
   autoplay = false;
@@ -317,9 +317,16 @@ function stopAutoplay() {
   tryHint.classList.add("show");
 }
 
-window.addEventListener("scroll", () => { if (autoplay && window.scrollY > 60) stopAutoplay(); }, { passive: true });
-new IntersectionObserver(([entry]) => { heroVisible = entry.isIntersecting; }, { threshold: 0.3 }).observe(document.querySelector(".hero"));
-notch.addEventListener("load", () => setTimeout(playHero, 300), { once: true });
+const hero = document.querySelector(".hero");
+window.addEventListener("scroll", () => { if (autoplay && hero.getBoundingClientRect().bottom <= 0) stopAutoplay(); }, { passive: true });
+new IntersectionObserver(([entry]) => { heroVisible = entry.isIntersecting; }, { threshold: 0.3 }).observe(hero);
+// The frame reports the notch's rectangle once its scene is listening; start then.
+let heroStarted = false;
+window.addEventListener("message", (event) => {
+  if (heroStarted || event.source !== notch.contentWindow || event.data?.type !== "cb-live-rect") return;
+  heroStarted = true;
+  playHero();
+});
 
 // Once every visible card is in, the notch answers from them, then the cards come back for another go.
 let answering = false;
