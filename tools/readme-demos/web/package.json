@@ -1,0 +1,12 @@
+{
+  "name": "casebase-readme-demos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "icons": "python3 extract_icons.py",
+    "record": "node record.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.64.0"
+  }
+}

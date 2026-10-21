@@ -8,6 +8,45 @@ Work material rarely arrives in one place. A colleague sends a PDF in chat, a ch
 
 With casebase you save each piece in a second, without deciding where it should go. It reads what you saved, files it, and lets you find it again by asking.
 
+## See it work
+
+### Save a file
+![Dragging a PDF onto the notch; casebase reads it, then the library shows it with a summary and tags](docs/media/drop-en.gif)
+
+Drag a file onto the notch. casebase reads it, gives it a title, a summary and tags, and files it.
+
+### Save selected text with ⌘F1
+![Selecting a sentence in Safari and pressing ⌘F1; the text flies into the notch and is saved](docs/media/text-en.gif)
+
+Select a sentence anywhere and press `⌘F1`. It is saved with the app and window it came from.
+
+### Save part of the screen with ⌘F2
+![Pressing ⌘F2 and selecting a chart; the screenshot flies into the notch and is saved](docs/media/shot-en.gif)
+
+Press `⌘F2` and drag over what you need. The capture is read like any other image.
+
+### Ask about what you saved
+![Asking "What did we decide on launch pricing?" in Explore; the answer cites the meeting and the pricing notes](docs/media/ask-en.gif)
+
+Answers come from your own records and list the sources they used.
+
+### Turn a meeting into to-dos
+![Opening a recorded meeting, adding its suggested action items, and finding them in To-do](docs/media/meeting-en.gif)
+
+Action items from a meeting wait for you to accept them, then show up in To-do.
+
+### Discuss a record at the round table
+![Clicking Discuss on a meeting record opens the 12 Knights round table, where AI members talk it through](docs/media/roundtable-en.gif)
+
+**Discuss** opens the optional 12 Knights round table with the record loaded, so several AI members can review it together.
+
+### Use casebase from your AI tools
+![An MCP client searches casebase, reads the meeting, and creates a to-do that then appears in casebase](docs/media/mcp-en.gif)
+
+Through `casebase-mcp`, Claude Code, Codex and other MCP clients can search your records and add to-dos.
+
+The demos are rendered from the app's own interface code and an isolated demo library; see [tools/readme-demos](tools/readme-demos).
+
 ## What you can use it for
 
 **Meetings.** Start a recording from the notch and keep working. When the meeting ends you get the transcript and a list of action items, with owners and due dates where they were mentioned. Add the ones that are yours to your to-do list with one click.
@@ -54,7 +93,7 @@ Optional: run an oMLX server for meeting transcription, add a Google API key for
 | Save selected text | `⌘F1` |
 | Capture part of the screen | `⌘F2` |
 | Record a meeting | Hover the notch → **Record** |
-| Browse saved items | Hover the notch → **View data** |
+| Browse saved items | Hover the notch → **Library** |
 | Ask a question | Hover the notch → **Explore** |
 | See to-dos | Hover the notch → **To-do** |
 | Open the round table (optional) | `⌘F4` |
