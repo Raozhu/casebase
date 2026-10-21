@@ -270,7 +270,7 @@ h1 { font-size: clamp(52px, 9.5vw, 132px); line-height: 1.02; }
 
 /* Spotlight: while the notch is open, the rest of the hero steps back */
 .hero h1, .hero .sub, .hero .buttons, .hero .try, .fragments { transition: opacity 0.5s ease, filter 0.5s ease; }
-body.notch-focus .hero h1, body.notch-focus .hero .sub, body.notch-focus .hero .buttons, body.notch-focus .hero .try, body.notch-focus .fragments { opacity: 0.12; filter: blur(2px); }
+body.notch-focus .hero h1, body.notch-focus .hero .sub, body.notch-focus .hero .buttons, body.notch-focus .hero .try, body.notch-focus .fragments { opacity: 0.12; }
 
 /* Letter-by-letter headlines */
 .split .word { display: inline-block; white-space: nowrap; }
@@ -309,7 +309,7 @@ body.dragging-card, body.dragging-card * { user-select: none !important; -webkit
 
 /* While dragging, the card in hand stays bright; the others step back. */
 body.dragging-card .fragments { opacity: 1 !important; filter: none !important; }
-body.dragging-card .frag:not(.dragging):not(.gone) { opacity: 0.2; filter: blur(2px); }
+body.dragging-card .frag:not(.dragging):not(.gone) { opacity: 0.2; }
 /* A dragged item floats above everything, the notch included, as on macOS. */
 body.dragging-card .fragments { z-index: 40; }
 

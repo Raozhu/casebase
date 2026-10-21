@@ -114,8 +114,8 @@ function pageRect() {
 
 function setHover(value) {
   if (value === hovering) return;
-  if (value) pauseAutoplay();
-  else resumeAutoplaySoon();
+  // The hero animation and the answer after a drag-in play through; the menu waits for them.
+  if (value && (autoplay || answering)) return;
   hovering = value;
   notch.style.pointerEvents = value ? "auto" : "none";
   notch.contentWindow?.postMessage({ type: "cb-live", hover: value }, "*");
@@ -281,40 +281,32 @@ function bringBack() {
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let autoplay = true;
 let heroRun = 0;
-let userTookOver = false;
 let heroVisible = true;
 
+// Plays once: the cards fly in, the notch answers from them, the cards come back.
 async function playHero(run = heroRun) {
   const playing = () => autoplay && run === heroRun;
-  while (playing()) {
-    if (!heroVisible) { await wait(400); continue; }
-    await wait(1400);
-    for (const card of fragments) {
-      if (!playing()) return;
-      if (card.offsetParent === null || card.classList.contains("gone")) continue;
-      fly(card, undefined, true);
-      await wait(520);
-    }
+  while (playing() && !heroVisible) await wait(400);
+  await wait(1400);
+  for (const card of fragments) {
     if (!playing()) return;
-    await wait(900);
-    if (!playing()) return;
-    strike();
-    await wait(700);
-    if (!playing()) return;
-    live({ ask: true });
-    await wait(lang === "en" ? 9000 : 10000);
-    if (!playing()) return;
-    tryHint.classList.add("show");
-    live({ reset: true });
-    unstrike();
-    await wait(600);
-    bringBack();
-    await wait(2600);
+    if (card.offsetParent === null || card.classList.contains("gone")) continue;
+    fly(card, undefined, true);
+    await wait(520);
   }
+  await wait(900);
+  if (!playing()) return;
+  strike();
+  await wait(700);
+  if (!playing()) return;
+  live({ ask: true });
+  await wait(lang === "en" ? 9000 : 10000);
+  if (!playing()) return;
+  stopAutoplay();
 }
 
-// Hovering the notch pauses the hero; leaving it starts the hero over unless a card was dragged.
-function pauseAutoplay() {
+// Dragging a card or scrolling down ends the animation and hands the hero to the visitor.
+function stopAutoplay() {
   if (!autoplay) return;
   autoplay = false;
   heroRun++;
@@ -322,22 +314,10 @@ function pauseAutoplay() {
   live({ reset: true });
   unstrike();
   bringBack();
-}
-
-function resumeAutoplaySoon() {
-  setTimeout(() => {
-    if (autoplay || hovering || userTookOver) return;
-    autoplay = true;
-    playHero(heroRun);
-  }, 1200);
-}
-
-function stopAutoplay() {
-  userTookOver = true;
-  pauseAutoplay();
   tryHint.classList.add("show");
 }
 
+window.addEventListener("scroll", () => { if (autoplay && window.scrollY > 60) stopAutoplay(); }, { passive: true });
 new IntersectionObserver(([entry]) => { heroVisible = entry.isIntersecting; }, { threshold: 0.3 }).observe(document.querySelector(".hero"));
 notch.addEventListener("load", () => setTimeout(playHero, 300), { once: true });
 

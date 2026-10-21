@@ -713,7 +713,8 @@ function render(t) {
   composite.style.width = `${comp.w}px`;
   composite.style.height = `${comp.h}px`;
   composite.style.transformOrigin = "50% 0";
-  composite.style.transform = `scale(${feedback})`;
+  // A settled bounce leaves a scale like 1.00002, which renders the panel's text soft.
+  composite.style.transform = Math.abs(feedback - 1) < 0.001 ? "none" : `scale(${feedback})`;
   const inset = CONTENT_PADDING + 2;
   panel.style.left = `${inset}px`;
   panel.style.top = `${TOP_INSET + CONTENT_PADDING + 2}px`;
@@ -788,13 +789,14 @@ function render(t) {
       shimmerNode.style.backgroundSize = `${highlight}px 100%`;
       shimmerNode.style.backgroundPosition = `${offset}px 0`;
     }
-    const p = railProgress;
+    // The spring only approaches 1; snap once it is there so the text is not left a hair blurred and scaled.
+    const p = railProgress > 0.995 ? 1 : railProgress;
     rail.style.left = `${cx}px`;
     rail.style.top = `${RAIL_TOP}px`;
     rail.style.opacity = Math.min(1, p);
-    rail.style.filter = `blur(${8 * (1 - p)}px)`;
+    rail.style.filter = p >= 1 ? "none" : `blur(${8 * (1 - p)}px)`;
     rail.style.transformOrigin = "50% 0";
-    rail.style.transform = `translateX(-50%) translateY(${-8 * (1 - p)}px) scale(${0.46 + 0.54 * p}, ${0.18 + 0.82 * p})`;
+    rail.style.transform = p >= 1 ? "translateX(-50%)" : `translateX(-50%) translateY(${-8 * (1 - p)}px) scale(${0.46 + 0.54 * p}, ${0.18 + 0.82 * p})`;
   }
 
   renderCapture(t, cx);
