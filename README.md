@@ -2,103 +2,87 @@
 
 [简体中文](README.zh-CN.md)
 
-**Save anything in one move. casebase reads it, files it, and answers from it later.**
+casebase is a Mac app that lives in the notch. It keeps the files, screenshots, text and meetings you come across at work in one place, and answers questions from them with sources.
 
-casebase lives in your Mac's notch. Drop in a file, press a hotkey on some text or a screenshot, or record a meeting. It figures out what the material is, organizes it on your Mac, and lets you ask questions about everything you have saved, with sources.
+Work material rarely arrives in one place. A colleague sends a PDF in chat, a chart you need is on a dashboard, a decision gets made halfway through a meeting. Most of it lands in Downloads, on the desktop or in a chat thread. A week later, when you're writing the review or following up, you can't remember where it went or what exactly was said.
 
-## What casebase does for you
+With casebase you save each piece in a second, without deciding where it should go. It reads what you saved, files it, and lets you find it again by asking.
 
-**Catches material the moment it shows up.**
-A file in a chat, a paragraph on a web page, a chart on screen. Drag it to the notch, or press `⌘F1` for selected text and `⌘F2` for a screenshot. No app to switch to, no folder to choose.
+## What you can use it for
 
-**Reads and files it for you.**
-PDFs, Word/Excel/PowerPoint, images, audio, text and whole folders are parsed (with OCR for images). An LLM gives each item a title, summary, key snippets, tags and a purpose, then files it into a matching folder. When it isn't sure what something is for, it asks you a short question instead of guessing.
+**Meetings.** Start a recording from the notch and keep working. When the meeting ends you get the transcript and a list of action items, with owners and due dates where they were mentioned. Add the ones that are yours to your to-do list with one click.
 
-**Finds it again in Finder, too.**
-Every record also appears as a shortcut under `~/Documents/Casebase 标签入口/<category>`, with a Finder tag, so you can browse by topic without opening the app.
+**User research.** Save interview recordings, notes and screenshots as you go. Before writing the summary, ask "what did people say about pricing?" and get an answer that links back to each interview.
 
-**Answers from your own material.**
-Ask a question and casebase searches your library, pulls the relevant passages, and answers with citations you can open. Saving the same file twice is detected and merged.
+**Reports and reviews.** Collect the PDFs colleagues send you, a chart from a dashboard and a paragraph from an article while you work. They end up sorted into folders you never had to create, ready when you sit down to write.
 
-**Turns meetings into notes and to-dos.**
-Start a recording from the notch and keep working. When you finish, the audio and transcript are saved as one record, and suggested action items wait for you to accept them as to-dos.
+**Finding a decision again.** Ask "what did we decide about launch pricing?" and casebase answers from the meeting where it happened, quoting the part that matters.
 
-**Keeps your to-dos moving.**
-To-dos have due dates and filters, and casebase can break a vague task into concrete subtasks.
-
-**Works with your AI tools.**
-The bundled `casebase-mcp` server lets Claude, Codex and other MCP clients search your records and read or update your to-dos.
+**Context for your AI tools.** Connect Claude Code, Codex or any MCP client to casebase, so they can look up your notes and meeting decisions and add to-dos for you.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A["Drop · ⌘F1 · ⌘F2 · Record"] --> B["Parse<br/>PDF · Office · OCR · transcription"]
-    B --> C["LLM analysis<br/>title · summary · tags · purpose"]
-    C -->|unsure| Q["Asks you a<br/>clarifying question"]
-    Q --> C
-    C --> D[("Local library<br/>SQLite + files")]
-    D --> E["Ask questions<br/>with citations"]
-    D --> F["Meeting to-dos"]
-    D --> G["Finder shortcuts"]
-    D --> H["casebase-mcp"]
-```
+**Save in one move.** Drag files, folders, images, PDFs or audio onto the notch. Press `⌘F1` to save the text you have selected, or `⌘F2` to capture part of the screen.
 
-- **Local first.** The database (SQLite with full-text search) and your files stay in `~/Library/Application Support/casebase`. Content is sent only to the model provider you configure.
-- **Models.** DeepSeek handles analysis, answers, and image/PDF understanding. A Google API key optionally adds Gemini embeddings for semantic search; without it, search falls back to full-text.
-- **Transcription.** Meetings are transcribed by a local oMLX server, so audio doesn't leave your Mac.
+**casebase reads what you save.** It parses PDFs, Word, Excel and PowerPoint files, images (with OCR), audio and whole folders. A language model writes a title, a summary, key points and tags for each item and files it by purpose. If it can't tell what something is for, it asks you a short question instead of guessing. Saving the same file twice is detected.
 
-## What you need to do
+**Ask across everything.** Answers are built from your saved items and list the sources they used. Open a source to see the original. Search is full-text by default; add a Google API key to enable semantic search.
 
-1. **Install.** Download `Casebase-<version>-arm64.dmg` from [Releases](https://github.com/Raozhu/casebase/releases) and drag `casebase.app` into Applications. The app isn't notarized yet, so on first launch open **System Settings → Privacy & Security** and click **Open Anyway**.
-2. **Add a DeepSeek API key.** Hover the notch, open **Settings**, and paste the key.
-3. **Start saving.** Drag something onto the notch, or try `⌘F1` / `⌘F2`. Grant each permission when macOS asks.
+**Meetings become to-dos.** Recordings are transcribed on your Mac by a local oMLX server. casebase then pulls out action items with owner, due date and the sentence they came from, and waits for you to accept them.
 
-That's it. Optional extras:
+**Your data stays on your Mac.** The library is a SQLite database plus your original files in `~/Library/Application Support/casebase`. Every item also appears in Finder under `~/Documents/Casebase 标签入口`, sorted by category and tagged. Content is only sent to the model provider you configure.
 
-- Meeting transcription: run an oMLX server locally (see [Configuration](#configuration)).
-- Semantic search: add a Google API key in settings.
-- AI tools: download `casebase-mcp` from Releases and add it to your MCP client.
+**Works with your AI tools.** The bundled `casebase-mcp` server lets MCP clients search your records and read, create and update to-dos.
+
+## Get started
+
+1. Download `Casebase-<version>-arm64.dmg` from [Releases](https://github.com/Raozhu/casebase/releases) and drag `casebase.app` into Applications. The app isn't notarized yet: on first launch, open **System Settings → Privacy & Security** and click **Open Anyway**.
+2. Hover the notch, open **Settings** and paste a DeepSeek API key.
+3. Drag a file onto the notch, or select some text and press `⌘F1`. macOS asks for each permission the first time a feature needs it.
 
 Requires macOS 14 or later on Apple Silicon.
 
-## Everyday use
+Optional: run an oMLX server for meeting transcription, add a Google API key for semantic search, and download `casebase-mcp` from Releases to connect your AI tools.
 
-| You want to | Do this |
+## Reference
+
+### Hotkeys and menu
+
+| To | Do this |
 |---|---|
 | Save files, images, PDFs, audio, folders | Drag them onto the notch |
-| Save the text you have selected | `⌘F1` |
-| Take and save a screenshot | `⌘F2` |
-| Record a meeting | Hover the notch → **Record**, set the number of speakers and an optional topic |
-| Look through what you saved | Hover the notch → **View data** |
-| Ask a question across everything you saved | Hover the notch → **Explore** |
-| Check and manage to-dos | Hover the notch → **To-do** |
+| Save selected text | `⌘F1` |
+| Capture part of the screen | `⌘F2` |
+| Record a meeting | Hover the notch → **Record** |
+| Browse saved items | Hover the notch → **View data** |
+| Ask a question | Hover the notch → **Explore** |
+| See to-dos | Hover the notch → **To-do** |
 | Open the round table (optional) | `⌘F4` |
 
-Hotkeys can be changed in settings. Recording keeps running while you use other features.
+Hotkeys can be changed in settings. A recording keeps running while you use other features.
 
-## Configuration
+### Configuration
 
 Settings live in `~/Library/Application Support/casebase/.env`. Keys entered in the app are written there.
 
 | Variable | Purpose |
 |---|---|
-| `DEEPSEEK_API_KEY` | Required. Analysis, answers, image/PDF understanding |
+| `DEEPSEEK_API_KEY` | Required. Analysis, answers, image and PDF understanding |
 | `CASEBASE_ANALYSIS_MODEL`, `CASEBASE_ANSWER_MODEL` | Model names, default `deepseek-flash` |
 | `CASEBASE_GOOGLE_API_KEY` | Optional. Gemini embeddings for semantic search |
-| `CASEBASE_STORAGE_ROOT` | Optional. Where the library lives, default `~/Library/Application Support/casebase` |
+| `CASEBASE_STORAGE_ROOT` | Optional. Where the library lives |
 
-**Meeting transcription** uses a local oMLX server (OpenAI-compatible, model `VibeVoice-ASR-4bit`) configured in `~/.omlx/settings.json`. Without it, recording still works but no transcript is produced.
+Meeting transcription uses a local oMLX server (OpenAI-compatible, model `VibeVoice-ASR-4bit`) configured in `~/.omlx/settings.json`. Without it, recordings are saved but not transcribed.
 
-**Round table** (`⌘F4`) is an optional companion: a local multi-agent group chat started from `KNIGHTS_HOME` on port 3721, whose memories are imported into casebase automatically. Set `KNIGHTS_AUTOSTART=0` to turn it off.
+The round table (`⌘F4`) is an optional local multi-agent group chat started from `KNIGHTS_HOME` on port 3721. Its notes are imported into casebase automatically. Set `KNIGHTS_AUTOSTART=0` to turn it off.
 
-## MCP server
+### MCP server
 
 `casebase-mcp` is a stdio MCP server over the same local library.
 
 | Tool | What it does |
 |---|---|
-| `casebase_list_records`, `casebase_search_records`, `casebase_get_record` | Browse and search saved records |
+| `casebase_list_records`, `casebase_search_records`, `casebase_get_record` | Browse and search saved items |
 | `casebase_list_todos`, `casebase_get_todo` | Read to-dos |
 | `casebase_create_todo`, `casebase_update_todo` | Create and update to-dos |
 
@@ -110,15 +94,13 @@ Settings live in `~/Library/Application Support/casebase/.env`. Keys entered in 
 }
 ```
 
-## Permissions
-
-casebase asks for each permission only when you first use the feature that needs it:
+### Permissions
 
 - Accessibility: read the selected text (`⌘F1`)
-- Screen Recording: take screenshots (`⌘F2`)
+- Screen Recording: capture the screen (`⌘F2`)
 - Microphone: record meetings
 
-## Build from source
+### Build from source
 
 Open `casebase.xcodeproj` in Xcode 16 or later and run the `casebase` scheme. The `casebase-mcp` scheme builds the MCP server.
 
